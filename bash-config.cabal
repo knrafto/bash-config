@@ -1,0 +1,64 @@
+name:               bash-config
+version:            0.1.0
+category:           Data, Language, Compilers/Interpreters
+license:            BSD3
+license-file:       LICENSE
+author:             Kyle Raftogianis
+maintainer:         Kyle Raftogianis <kylerafto@gmail.com>
+copyright:          Copyright (c) 2013 Kyle Raftogianis
+build-type:         Simple
+cabal-version:      >= 1.8
+homepage:           http://github.com/knrafto/bash-config/
+bug-reports:        http://github.com/knrafto/bash-config/issues
+synopsis:           Safely interpret Bash scripts as configuration files
+description:
+  This package allows Bash configuration files to be parsed and interpreted
+  from Haskell, without executing any commands. Many shell scripts use
+  these as configuration files, which are intended to be sourced for
+  shell variable assignments.
+  .
+  This library fully parses Bash scripts, but can only interpret a limited
+  subset of Bash. No commands are actually executed. Since this in theory
+  could limit the ability to interpret a configuration file, the interpreter
+  only returns variables it is sure are correct; all other variables are
+  "unknown". In practice, however, configuration scripts are simple enough
+  and pure enough for the library to interpret completely.
+
+extra-source-files:
+  .gitignore
+  README.md
+
+source-repository head
+  type: git
+  location: git://github.com/knrafto/bash-config.git
+
+library
+  hs-source-dirs: src
+
+  exposed-modules:
+    Bash.Config.Lexer
+    Bash.Config.Parse
+    Bash.Config.Source
+    Bash.Config.Types
+
+  build-depends:
+    base         >= 4   && < 5,
+    lens         >= 3.8 && < 4,
+    mtl          >= 2   && < 3,
+    parsec       >= 3   && < 4,
+    transformers >= 0.2 && < 0.4
+
+  ghc-options: -Wall -O2
+
+test-suite tests
+  type: exitcode-stdio-1.0
+  main-is: Tests.hs
+  hs-source-dirs: tests
+  ghc-options: -Wall -threaded
+
+  build-depends:
+    base,
+    bash-config,
+    HUnit,
+    tasty,
+    tasty-hunit
