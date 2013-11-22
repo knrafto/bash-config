@@ -1,20 +1,21 @@
 -- | Bash shell script types. This does not fully represent parts that
 -- aren't interpreted, such as redirections or arithmetic expressions.
 module Bash.Config.Types
-    ( -- * Commands
+    ( -- * Scripts
+      -- ** Commands
       Command(..)
-      -- * Lists
+      -- ** Lists
     , List(..)
     , AndOr(..)
     , Pipeline(..)
-      -- * Simple commands
+      -- ** Simple commands
     , SimpleCommand(..)
     , Assign(..)
     , AssignOp(..)
     , Value(..)
-      -- * Functions
+      -- ** Functions
     , Function(..)
-      -- * Shell commands
+      -- ** Shell commands
     , ShellCommand(..)
     , CaseClause(..)
     , CaseTerm(..)
