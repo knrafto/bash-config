@@ -14,7 +14,7 @@ module Bash.Config.Parse
 
 import           Control.Applicative    hiding (optional, many)
 import           Control.Monad.Identity
-import           Text.Parsec.Combinator
+import           Text.Parsec.Combinator hiding (anyToken, eof)
 import           Text.Parsec.Error      (ParseError)
 import           Text.Parsec.Pos
 import           Text.Parsec.Prim       (ParsecT, skipMany, many)
@@ -53,6 +53,10 @@ token :: (Token -> Maybe a) -> Parser a
 token = P.tokenPrim showToken updatePos
   where
     updatePos _ _ = sourcePos
+
+-- | Parse any token.
+anyToken :: Parser Token
+anyToken = token Just
 
 -- | Parse a given word token.
 word :: String -> Parser String
@@ -104,6 +108,14 @@ arith = withMode ArithMode $ token $ \case
 -- | Notify the lexer that the following lines contain a heredoc.
 needHeredoc :: String -> Parser ()
 needHeredoc = modifyInput . queueHeredoc
+
+-- | Parse the end of a file.
+eof :: Parser ()
+eof = P.try (moreTokens <|> return ())
+  where
+    moreTokens = do
+        t <- anyToken
+        P.unexpected (showToken t)
 
 -------------------------------------------------------------------------------
 -- Basic parsers
