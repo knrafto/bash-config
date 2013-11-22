@@ -52,7 +52,6 @@ withMode mode p = tokenMode mode *> p <* tokenMode NormalMode
 token :: (Token -> Maybe a) -> Parser a
 token = P.tokenPrim showToken updatePos
   where
-    showToken     = show
     updatePos _ _ = sourcePos
 
 -- | Parse a given word token.

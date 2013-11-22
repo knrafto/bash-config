@@ -16,6 +16,7 @@ module Bash.Config.Lexer
     ( -- * Tokens
       Token(..)
     , TokenMode(..)
+    , showToken
       -- * Special tokens
     , reservedWords
     , redirOps
@@ -34,10 +35,11 @@ module Bash.Config.Lexer
 import           Prelude              hiding (span)
 
 import           Control.Applicative
-import           Control.Lens         hiding (assign)
+import           Control.Lens         hiding (assign, op)
 import           Control.Monad.State
 import           Data.Char
 import           Data.Functor.Compose
+import           Data.List            hiding (span)
 import           Data.Monoid
 import           Text.Parsec          (Stream(..))
 import           Text.Parsec.Pos      (SourceName, SourcePos)
@@ -73,6 +75,23 @@ data TokenMode
       -- | Lex arithmetic expressions.
     | ArithMode
     deriving (Eq, Ord, Enum, Bounded, Show)
+
+-- | Convert a token to the string it represents.
+showToken :: Token -> String
+showToken = \case
+    TWord s     -> s
+    TOperator s -> s
+    TNumber i   -> show i
+    TAssign a   -> showAssign a
+    TArith s    -> s
+  where
+    showAssign (Assign lhs op rhs) = lhs ++ showAssignOp op ++ showValue rhs
+
+    showAssignOp Equals     = "="
+    showAssignOp PlusEquals = "+="
+
+    showValue (Value s) = s
+    showValue (Array a) = "(" ++ intercalate " " a ++ ")"
 
 -------------------------------------------------------------------------------
 -- Special tokens
