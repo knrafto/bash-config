@@ -19,9 +19,14 @@ module Bash.Config.Types
     , ShellCommand(..)
     , CaseClause(..)
     , CaseTerm(..)
-      -- * Miscellaneous
+      -- * Environments
+    , Env(..)
+    , emptyEnv
     , unquote
     ) where
+
+import Data.Map (Map)
+import Data.Monoid
 
 -- | A Bash command.
 data Command
@@ -93,6 +98,15 @@ data CaseTerm
     | FallThrough
     | Continue
     deriving (Eq, Show)
+
+data Env = Env
+    { envParameters :: Map String Value
+    , envFunctions  :: Map String ShellCommand
+    }
+
+-- | The empty environment.
+emptyEnv :: Env
+emptyEnv = Env mempty mempty
 
 -- | Remove all quoting from a word.
 unquote :: String -> String
