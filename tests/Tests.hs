@@ -45,12 +45,12 @@ tests = testGroup "tester"
             forM_ normalOps $ \op -> testTokens op [TOperator op]
             testTokens "()" [TOperator "(", TOperator ")"]
         , testCase "redirection number" $ do
-            testTokens "1>2"  [TNumber, TOperator ">", TWord "2"]
-            testTokens "15<<" [TNumber, TOperator "<<"]
+            testTokens "1>2"  [TNumber 1, TOperator ">", TWord "2"]
+            testTokens "15<<" [TNumber 15, TOperator "<<"]
             testTokens "1 >"  [TWord "1", TOperator ">"]
         , testCase "escaping" $ do
-            testTokens "a\\\nb"  [TWord "ab"]
-            testTokens "\\$( )"  [TWord "\\$", TOperator "(", TOperator ")"]
+            testTokens "a\\\nb" [TWord "ab"]
+            testTokens "\\$( )" [TWord "\\$", TOperator "(", TOperator ")"]
             testWord "a\\\"b"
             testWord "a\\ b"
         , testCase "single quoting" $ do

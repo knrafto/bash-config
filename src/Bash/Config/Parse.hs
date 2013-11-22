@@ -85,10 +85,10 @@ anyOperator = token $ \case
     _            -> Nothing
 
 -- | Parse an IO redirection number.
-number :: Parser ()
+number :: Parser Int
 number = token $ \case
-    TNumber -> Just ()
-    _       -> Nothing
+    TNumber i -> Just i
+    _         -> Nothing
 
 -- | Parse an assignment word.
 assign :: Parser Assign

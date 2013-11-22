@@ -57,7 +57,7 @@ data Token
       -- | A shell operator.
     | TOperator String
       -- | An IO redirection number.
-    | TNumber
+    | TNumber Int
       -- | A shell variable assignment.
     | TAssign Assign
       -- | An arithmetic expression.
@@ -414,7 +414,7 @@ lexNormal = skipSpace *> token
     normalWord = do
         w <- nonempty word
         peekChar <&> \case
-            Just c | isAngle c && all isDigit w -> TNumber
+            Just c | isAngle c && all isDigit w -> TNumber (read w)
             _                                   -> TWord w
 
     isAngle c = c == '<' || c == '>'
