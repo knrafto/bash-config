@@ -8,11 +8,20 @@ import Control.Applicative
 import Control.Monad.Reader.Class
 import Control.Monad.State.Class
 
+import Bash.Config.Builtins
+import Bash.Config.Test
 import Bash.Config.Types
 
 -- | Execute with a 'Dirty' status.
 dirty :: Bash a -> Bash a
 dirty = local (const Dirty)
+
+-- | Return 'Just' if the current execution status if 'Clean',
+-- and 'Nothing' otherwise.
+binding :: a -> Bash (Maybe a)
+binding a = asks $ \case
+    Dirty -> Nothing
+    Clean -> Just a
 
 -- | Execute in a subshell. Environment changes during the subshell execution
 -- will not affect the outside environment.
@@ -23,40 +32,42 @@ subshell action = do
     put env
     return r
 
--- | Invert a command's return value.
-invert :: Bash Int -> Bash Int
-invert = fmap (\r -> if r == 0 then 1 else 0)
-
--- | Evaluate a command as a predicate. Returns 'Nothing' if the command could
--- not be executed faithfully.
-predicate :: Bash Int -> Bash (Maybe Bool)
-predicate m = Just . (== 0) <$> m
-          <|> return Nothing
-
 -- | Execute a conditional (@if@) construct.
 cond :: Bash Int -> Bash Int -> Bash Int -> Bash Int
-cond p t f = predicate p >>= \case
-        Nothing    -> dirty t >> dirty f
-        Just False -> t
-        Just True  -> f
-
--- | Execute a looping (@while@) construct.
-loop :: Bash Int -> Bash Int -> Bash Int
-loop p s = go 0
-  where
-    go r = do
-        predicate p >>= \case
-            Nothing    -> dirty s
-            Just False -> s >>= go
-            Just True  -> return r
-
--- | Evaluate a conditional or @test@ command.
-test :: [String] -> Bash Int
-test = undefined
+cond p t f = optional p >>= \case
+    Nothing -> dirty t >> dirty f
+    Just 0  -> t
+    Just _  -> f
 
 -- | Execute a simple command.
 command :: [String] -> Bash Int
 command = undefined
+
+-- | Execute a user-defined function.
+function :: String -> Bash Int
+function c = use (functions . at c) >>= \case
+    Nothing -> empty
+    Just f  -> f
+
+-- | Set a shell parameter.
+assign :: String -> Value -> Bash ()
+assign name value = do
+    mvalue <- binding value
+    parameters . at name .= mvalue
+
+-- | Add to a shell parameter.
+augment :: String -> Value -> Bash ()
+augment name value = do
+    a <- use (parameters . at name)
+    b <- binding value
+    let mvalue = append <$> a <*> b
+    parameters . at name .= mvalue
+
+-- | Define a shell function.
+define :: String -> List -> Bash ()
+define name body = do
+    mbody <- binding body
+    functions . at name .= mbody
 
 -- | Executable commands.
 class Eval a where
@@ -91,17 +102,21 @@ instance Eval Pipeline where
         [c] -> bang $ eval c
         cs  -> bang $ subshell $ eval cs
       where
-        bang = if b then invert else id
+        bang   = if b then invert else id
+        invert = fmap $ \r -> if r == 0 then 1 else 0
+
 
 instance Eval SimpleCommand where
     eval (SimpleCommand as []) = eval as
     eval (SimpleCommand _  c ) = command c
 
 instance Eval Assign where
-    eval = undefined
+    eval (Assign name op value) = 0 <$ case op of
+        Equals     -> assign name value
+        PlusEquals -> augment name value
 
 instance Eval Function where
-    eval (Function name def) = undefined
+    eval (Function name body) = 0 <$ define name (eval body)
 
 instance Eval ShellCommand where
     eval (Subshell l  ) = subshell $ eval l
@@ -113,8 +128,8 @@ instance Eval ShellCommand where
     eval (Select _ _ l) = dirty $ eval l
     eval (Case _ cs   ) = eval cs
     eval (If p t f    ) = cond (eval p) (eval t) (eval f)
-    eval (Until p l   ) = loop (invert $ eval p) (eval l)
-    eval (While p l   ) = loop (eval p) (eval l)
+    eval (Until p l   ) = dirty (eval p) >> dirty (eval l)
+    eval (While p l   ) = dirty (eval p) >> dirty (eval l)
 
 instance Eval CaseClause where
     eval (CaseClause _ l _) = dirty $ eval l
