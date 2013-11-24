@@ -12,16 +12,14 @@ import Bash.Config.Lexer
 import Bash.Config.Types
 
 token :: TokenMode -> String -> Token -> Assertion
-token m s expected = case nextToken i of
+token m s expected = case nextToken (makeTokens m "" s) of
     Nothing     -> assertFailure "testAssign failed"
-    Just (t, _) -> t @?= expected
-  where
-    i = makeTokens m "" s
+    Just (t, _) -> untag t @?= expected
 
 tokens :: TokenMode -> String -> [Token] -> Assertion
-tokens m s expected = unfoldr nextToken i @?= expected
+tokens m s expected = map untag ts @?= expected
   where
-    i = makeTokens m "" s
+    ts = unfoldr nextToken (makeTokens m "" s)
 
 tests :: TestTree
 tests = testGroup "tester"

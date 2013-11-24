@@ -15,8 +15,10 @@
 module Bash.Config.Lexer
     ( -- * Tokens
       Token(..)
+    , Located(..)
     , TokenMode(..)
     , showToken
+    , untag
       -- * Special tokens
     , reservedWords
     , redirOps
@@ -27,7 +29,6 @@ module Bash.Config.Lexer
     , Tokens
     , nextToken
     , makeTokens
-    , sourcePos
     , setTokenMode
     , queueHeredoc
     ) where
@@ -66,6 +67,10 @@ data Token
     | TArith String
     deriving (Eq, Show)
 
+-- | A token with a position.
+data Located = Located !SourcePos Token
+    deriving (Eq, Show)
+
 -- | Lexer token modes.
 data TokenMode
       -- | Lex normal tokens, operators, and redirection numbers.
@@ -92,6 +97,10 @@ showToken = \case
 
     showValue (Value s) = s
     showValue (Array a) = "(" ++ intercalate " " a ++ ")"
+
+-- | Untag a token.
+untag :: Located -> Token
+untag (Located _ t) = t
 
 -------------------------------------------------------------------------------
 -- Special tokens
@@ -267,6 +276,10 @@ span end f = go
         Just c  -> do moveChar
                       unless (c == end) $ f c >> go
 
+-- | Tag a lexed token with its location.
+locate :: Lexer Token -> Lexer Located
+locate l = Located <$> uses source S.sourcePos <*> l
+
 -------------------------------------------------------------------------------
 -- Basic Bash lexers
 -------------------------------------------------------------------------------
@@ -417,14 +430,14 @@ word = withBuffer go
 -------------------------------------------------------------------------------
 
 -- | Lex a bash token using a given lexical analysis mode.
-lexBash :: TokenMode -> Lexer Token
+lexBash :: TokenMode -> Lexer Located
 lexBash NormalMode = lexNormal
 lexBash AssignMode = lexAssign
 lexBash ArithMode  = lexArith
 
 -- | Lex a token in normal mode.
-lexNormal :: Lexer Token
-lexNormal = skipSpace *> token
+lexNormal :: Lexer Located
+lexNormal = skipSpace *> locate token
   where
     token = normalWord
         <|> TOperator <$> newline
@@ -439,10 +452,10 @@ lexNormal = skipSpace *> token
     isAngle c = c == '<' || c == '>'
 
 -- | Lex a token in assignment mode.
-lexAssign :: Lexer Token
-lexAssign = TAssign <$> assign
+lexAssign :: Lexer Located
+lexAssign = skipSpace *> locate (TAssign <$> assign)
   where
-    assign = Assign <$ skipSpace <*> lhs <*> assignOp <*> rhs
+    assign = Assign <$> lhs <*> assignOp <*> rhs
 
     lhs = withBuffer $ do
         satisfy isNameStart
@@ -472,8 +485,8 @@ lexAssign = TAssign <$> assign
         _         -> return ()
 
 -- | Lex a token in arithmetic mode.
-lexArith :: Lexer Token
-lexArith = TArith <$> withBuffer arith
+lexArith :: Lexer Located
+lexArith = locate $ TArith <$> withBuffer arith
 
 -------------------------------------------------------------------------------
 -- Parsec token stream
@@ -488,10 +501,10 @@ data Tokens = Tokens
       -- | The current token mode.
     , tokenMode  :: TokenMode
       -- | Get the next token, if possible.
-    , nextToken  :: Maybe (Token, Tokens)
+    , nextToken  :: Maybe (Located, Tokens)
     }
 
-instance Monad m => Stream Tokens m Token where
+instance Monad m => Stream Tokens m Located where
     uncons = return . nextToken
 
 -- | Construct a token stream from a lexer state.
@@ -509,10 +522,6 @@ toTokens s mode = Tokens
 -- | Construct a named token stream.
 makeTokens :: TokenMode -> SourceName -> String -> Tokens
 makeTokens mode name s = toTokens (makeLexerState $ S.source name s) mode
-
--- | Get the current source position.
-sourcePos :: Tokens -> SourcePos
-sourcePos = S.sourcePos . view source . lexerState
 
 -- | Set the lexer token mode.
 setTokenMode :: TokenMode -> Tokens -> Tokens
