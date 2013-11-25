@@ -4,15 +4,16 @@ module Bash.Config.Eval
     ( Eval(..)
     ) where
 
-import Control.Applicative
-import Control.Lens               hiding (assign, op)
-import Control.Monad.Reader.Class
-import Control.Monad.State.Class
-import Data.Map                   (Map)
-import Data.Monoid                hiding (Last)
+import           Control.Applicative
+import           Control.Lens               hiding (assign, op)
+import           Control.Monad.Reader.Class
+import           Control.Monad.State.Class
+import           Data.Map                   (Map)
+import qualified Data.Map                   as Map
+import           Data.Monoid                hiding (Last)
 
-import Bash.Config.Expand
-import Bash.Config.Types
+import           Bash.Config.Expand
+import           Bash.Config.Types
 
 makeLensesFor [ ("envParameters", "parameters")
               , ("envFunctions" , "functions" )
@@ -163,6 +164,30 @@ instance Eval CaseClause where
 -- Builtins
 ------------------------------------------------------------------------------
 
--- | Shell builtins.
+-- | Interpreter builtins. These are commands the the interpreter knows
+-- how to execute. Any command not in this map is assumed to be user-defined,
+-- or external.
+--
+-- The implemented builtins are @test@, @[@, @true@, and @false@. Most shell
+-- builtins are assumed to have unpredictable effects and will cause the
+-- interpreter to fail. However, some shell builtins, such as
+-- @break@, @continue@, @pwd@, etc. are assumed to be safe.
 builtins :: Map String ([String] -> Bash ReturnCode)
-builtins = mempty
+builtins = Map.fromList $
+    -- implemented builtins
+    [ ("test" , cond )
+    , ("["    , cond_)
+    , ("true" , \_ -> return Success)
+    , ("false", \_ -> return Failure)
+    ]
+    -- unsafe builtins
+    ++ map (\name -> (name, const empty))
+        [ ".", "alias", "builtin", "caller", "declare", "enable", "exec"
+        , "exit", "export", "let", "local", "logout", "mapfile", "read"
+        , "readarray", "readonly", "return", "source", "trap", "typeset"
+        , "unset", "unalias"
+        ]
+  where
+    cond_ ws = case unsnoc ws of
+        Just (ws', "]") -> cond ws'
+        _               -> return Failure
