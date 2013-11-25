@@ -24,6 +24,18 @@ makeLensesFor [ ("envParameters", "parameters")
 -- Bindings
 ------------------------------------------------------------------------------
 
+-- | Append two values. Two values and two arrays are combined normally.
+-- Appending an array to a value has no effect. Appending a value to an
+-- array results in the first element of the array concatenated with
+-- the value.
+append :: Value -> Value -> Value
+append (Value a ) (Value b ) = Value (a ++ b)
+append (Value a ) _          = Value a
+append (Array as) (Array bs) = Array (as ++ bs)
+append (Array as) (Value b ) = Value $ case as of
+    []  -> b
+    a:_ -> a ++ b
+
 -- | Return 'Just' if the current execution status if 'Clean',
 -- and 'Nothing' otherwise.
 binding :: a -> Bash (Maybe a)
