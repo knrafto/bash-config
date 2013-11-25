@@ -46,7 +46,7 @@ augment name value = do
     parameters . at name .= mvalue
 
 -- | Define a shell function.
-define :: String -> Bash ReturnCode -> Bash ()
+define :: String -> Bash ExitStatus -> Bash ()
 define name body = do
     mbody <- binding body
     functions . at name .= mbody
@@ -56,7 +56,7 @@ define name body = do
 ------------------------------------------------------------------------------
 
 -- | Execute a simple command.
-command :: String -> [String] -> Bash ReturnCode
+command :: String -> [String] -> Bash ExitStatus
 command name args = do
     defined <- use functions
     let allCommands = builtins <> fmap const defined
@@ -69,12 +69,12 @@ command name args = do
 ------------------------------------------------------------------------------
 
 -- | Evaluate with a 'Dirty' status.
-dirty :: Eval a => a -> Bash ReturnCode
+dirty :: Eval a => a -> Bash ExitStatus
 dirty a = Unknown <$ local (const Dirty) (eval a)
 
 -- | Execute in a subshell. Environment changes during the subshell execution
 -- will not affect the outside environment.
-subshell :: Eval a => a -> Bash ReturnCode
+subshell :: Eval a => a -> Bash ExitStatus
 subshell a = do
     env <- get
     r <- eval a
@@ -84,7 +84,7 @@ subshell a = do
 -- | Executable commands.
 class Eval a where
     -- | Execute a command, and return its return value.
-    eval :: a -> Bash ReturnCode
+    eval :: a -> Bash ExitStatus
 
 instance Eval a => Eval [a] where
     eval [] = return Success
@@ -169,7 +169,7 @@ instance Eval CaseClause where
 -- builtins are assumed to have unpredictable effects and will cause the
 -- interpreter to fail. However, some shell builtins, such as
 -- @break@, @continue@, @pwd@, etc. are assumed to be safe.
-builtins :: Map String ([String] -> Bash ReturnCode)
+builtins :: Map String ([String] -> Bash ExitStatus)
 builtins = Map.fromList $
     -- implemented builtins
     [ ("test" , cond )

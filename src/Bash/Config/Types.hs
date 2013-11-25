@@ -5,7 +5,7 @@ module Bash.Config.Types
     ( -- * Execution
       Env(..)
     , emptyEnv
-    , ReturnCode(..)
+    , ExitStatus(..)
     , Status(..)
     , Bash(..)
       -- * Commands
@@ -43,7 +43,7 @@ data Env = Env
     { -- | Environment parameters or variables.
       envParameters :: Map String Value
       -- | Environment functions.
-    , envFunctions  :: Map String (Bash ReturnCode)
+    , envFunctions  :: Map String (Bash ExitStatus)
     }
 
 -- | The empty environment.
@@ -51,7 +51,7 @@ emptyEnv :: Env
 emptyEnv = Env mempty mempty
 
 -- | A command's return code.
-data ReturnCode
+data ExitStatus
     -- | An unknown return code.
     = Unknown
     -- | A nonzero return code.

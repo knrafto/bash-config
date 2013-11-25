@@ -5,5 +5,5 @@ module Bash.Config.Cond
 
 import Bash.Config.Types
 
-cond :: [String] -> Bash ReturnCode
+cond :: [String] -> Bash ExitStatus
 cond = undefined
