@@ -8,6 +8,8 @@ import Control.Applicative
 import Control.Lens               hiding (assign, op)
 import Control.Monad.Reader.Class
 import Control.Monad.State.Class
+import Data.Map                   (Map)
+import Data.Monoid                hiding (Last)
 
 import Bash.Config.Expand
 import Bash.Config.Types
@@ -53,7 +55,12 @@ define name body = do
 
 -- | Execute a simple command.
 command :: String -> [String] -> Bash ReturnCode
-command = undefined
+command name args = do
+    defined <- use functions
+    let allCommands = builtins <> fmap const defined
+    case allCommands ^. at name of
+        Nothing -> return Unknown
+        Just f  -> f args
 
 -- | Execute a conditional.
 cond :: [String] -> Bash ReturnCode
@@ -151,3 +158,11 @@ instance Eval ShellCommand where
 
 instance Eval CaseClause where
     eval (CaseClause _ l _) = dirty l
+
+------------------------------------------------------------------------------
+-- Builtins
+------------------------------------------------------------------------------
+
+-- | Shell builtins.
+builtins :: Map String ([String] -> Bash ReturnCode)
+builtins = mempty
