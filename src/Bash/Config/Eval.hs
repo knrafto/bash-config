@@ -12,6 +12,7 @@ import           Data.Map                   (Map)
 import qualified Data.Map                   as Map
 import           Data.Monoid                hiding (Last)
 
+import           Bash.Config.Cond
 import           Bash.Config.Expand
 import           Bash.Config.Types
 
@@ -62,10 +63,6 @@ command name args = do
     case allCommands ^. at name of
         Nothing -> return Unknown
         Just f  -> f args
-
--- | Execute a conditional.
-cond :: [String] -> Bash ReturnCode
-cond = undefined
 
 ------------------------------------------------------------------------------
 -- Execution
