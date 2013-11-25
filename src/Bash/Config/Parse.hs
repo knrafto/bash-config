@@ -339,20 +339,20 @@ functionParens :: Parser ()
 functionParens = () <$ operator "(" <* operator ")"
 
 -- | Parse a function body.
-functionBody :: Parser ShellCommand
-functionBody = newlineList *> shellCommand <* redirList
+functionBody :: Parser Function
+functionBody = Function <$ newlineList <*> shellCommand <* redirList
 
 -- | Parse a function definition beginning with the keyword @function@.
-functionDef1 :: Parser Function
-functionDef1 = Function
+functionDef1 :: Parser Command
+functionDef1 = FunctionDef
            <$  word "function"
            <*> anyWord
            <*  optional functionParens
            <*> functionBody
 
 -- | Parse a function definition beginning with the given name.
-functionDef2 :: String -> Parser Function
-functionDef2 w = Function w <$ functionParens <*> functionBody
+functionDef2 :: String -> Parser Command
+functionDef2 w = FunctionDef w <$ functionParens <*> functionBody
 
 -------------------------------------------------------------------------------
 -- Commands
@@ -362,15 +362,15 @@ functionDef2 w = Function w <$ functionParens <*> functionBody
 command :: Parser Command
 command = baseCommand <* redirList
   where
-    baseCommand = Simple      <$> assignCommand
-              <|> Coproc      <$  coproc
-              <|> FunctionDef <$> functionDef1
-              <|> Shell       <$> shellCommand <* redirList
+    baseCommand = Simple <$> assignCommand
+              <|> Coproc <$  coproc
+              <|> Shell  <$> shellCommand <* redirList
+              <|> functionDef1
               <|> namedCommand
 
     namedCommand = do
         w <- unreservedWord
-        FunctionDef <$> functionDef2 w <|> Simple <$> simpleCommand w
+        functionDef2 w <|> Simple <$> simpleCommand w
 
 -- | Parse an entire script (e.g. a file) as a list of commands.
 script :: Parser Script

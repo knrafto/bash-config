@@ -81,10 +81,11 @@ instance Eval Script where
     eval (Script l) = eval l
 
 instance Eval Command where
-    eval (Simple c     ) = eval c
-    eval (Shell c      ) = eval c
-    eval (FunctionDef f) = eval f
-    eval Coproc          = empty
+    eval (Simple c) = eval c
+    eval (Shell c)  = eval c
+    eval (FunctionDef name f) = Success <$ define name f
+                            <|> Unknown <$ undefine name
+    eval Coproc     = empty
 
 instance Eval List where
     eval (List cs) = eval cs
@@ -112,7 +113,6 @@ instance Eval Pipeline where
             Failure -> Success
             Success -> Failure
 
-
 instance Eval SimpleCommand where
     eval (SimpleCommand as ws) = optional (expandWords ws) >>= \case
         Nothing       -> return Unknown
@@ -128,8 +128,7 @@ instance Eval Assign where
             PlusEquals -> augment
 
 instance Eval Function where
-    eval (Function name body) = Success <$ define name (Script body)
-                            <|> Unknown <$ undefine name
+    eval (Function body) = eval body
 
 instance Eval ShellCommand where
     eval (Subshell l  ) = subshell l

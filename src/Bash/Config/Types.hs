@@ -54,7 +54,7 @@ data Env = Env
     { -- | Environment parameters or variables.
       parameters :: Map String Value
       -- | Environment functions.
-    , functions  :: Map String Script
+    , functions  :: Map String Function
     } deriving (Eq, Show)
 
 -- | A Bash value.
@@ -168,11 +168,11 @@ value name = gets (Map.lookup name . parameters) >>= \case
 -------------------------------------------------------------------------------
 
 -- | Modify the shell function map.
-modifyFunctions :: (Map String Script -> Map String Script) -> Bash ()
+modifyFunctions :: (Map String Function -> Map String Function) -> Bash ()
 modifyFunctions f = modify $ \env -> env { functions = f (functions env) }
 
 -- | Define a shell function. Fails if the current execution status is dirty.
-define :: String -> Bash ExitStatus -> Bash ()
+define :: String -> Function -> Bash ()
 define name body = whenClean $ modifyFunctions (Map.insert name body)
 
 -- | Undefine a shell function.
@@ -191,7 +191,7 @@ newtype Script = Script List
 data Command
     = Simple SimpleCommand
     | Shell ShellCommand
-    | FunctionDef Function
+    | FunctionDef String Function
     | Coproc
     deriving (Eq, Show)
 
@@ -222,8 +222,8 @@ data Assign = Assign String AssignOp Value
 data AssignOp = Equals | PlusEquals
     deriving (Eq, Show)
 
--- | A function definition.
-data Function = Function String ShellCommand
+-- | A function.
+newtype Function = Function ShellCommand
     deriving (Eq, Show)
 
 -- | A compound command.
