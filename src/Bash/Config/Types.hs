@@ -25,9 +25,6 @@ module Bash.Config.Types
     , ShellCommand(..)
     , CaseClause(..)
     , CaseTerm(..)
-      -- * Miscellaneous
-    , unquote
-    , append
     ) where
 
 import Control.Applicative
@@ -180,11 +177,3 @@ data CaseTerm
     | FallThrough
     | Continue
     deriving (Eq, Show)
-
--- | Remove all quoting from a word.
-unquote :: String -> String
-unquote = undefined  -- TODO
-
--- | Append two values.
-append :: Value -> Value -> Value
-append = undefined  -- TODO

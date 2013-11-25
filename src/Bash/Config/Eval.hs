@@ -9,6 +9,7 @@ import Control.Lens               hiding (assign, op)
 import Control.Monad.Reader.Class
 import Control.Monad.State.Class
 
+import Bash.Config.Expand
 import Bash.Config.Types
 
 makeLensesFor [ ("envParameters", "parameters")
@@ -51,7 +52,7 @@ define name body = do
 ------------------------------------------------------------------------------
 
 -- | Execute a simple command.
-command :: [String] -> Bash ReturnCode
+command :: String -> [String] -> Bash ReturnCode
 command = undefined
 
 -- | Execute a conditional.
@@ -118,13 +119,16 @@ instance Eval Pipeline where
 
 
 instance Eval SimpleCommand where
-    eval (SimpleCommand as []) = eval as
-    eval (SimpleCommand _  c ) = command c
+    eval (SimpleCommand as ws) = expandWords ws >>= \case
+        []     -> eval as
+        c:args -> command c args
 
 instance Eval Assign where
-    eval (Assign name op value) = Success <$ case op of
-        Equals     -> assign name value
-        PlusEquals -> augment name value
+    eval (Assign name op value) = do
+        value' <- expandValue value
+        Success <$ case op of
+            Equals     -> assign name value'
+            PlusEquals -> augment name value'
 
 instance Eval Function where
     eval (Function name body) = Success <$ define name (eval body)
