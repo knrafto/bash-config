@@ -5,7 +5,7 @@ module Bash.Config.Expand
     , expandValue
     ) where
 
-import Bash.Config.Types
+import Bash.Config.Env
 
 unquote :: String -> String
 unquote = id  -- TODO

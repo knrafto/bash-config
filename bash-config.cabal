@@ -37,6 +37,7 @@ library
 
   exposed-modules:
     Bash.Config.Cond
+    Bash.Config.Env
     Bash.Config.Expand
     Bash.Config.Eval
     Bash.Config.Lexer

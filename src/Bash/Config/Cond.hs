@@ -3,7 +3,7 @@ module Bash.Config.Cond
     ( cond
     ) where
 
-import Bash.Config.Types
+import Bash.Config.Env
 
 cond :: [String] -> Bash ExitStatus
 cond = undefined

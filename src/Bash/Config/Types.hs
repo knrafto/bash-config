@@ -2,15 +2,7 @@
 -- | Bash shell script types. This does not fully represent parts that
 -- aren't interpreted, such as redirections or arithmetic expressions.
 module Bash.Config.Types
-    ( -- * Execution
-      Value(..)
-    , Env(..)
-    , emptyEnv
-    , ExitStatus(..)
-    , Status(..)
-    , Bash(..)
-      -- * Commands
-    , Command(..)
+    ( Command(..)
       -- ** Lists
     , List(..)
     , AndOr(..)
@@ -27,85 +19,7 @@ module Bash.Config.Types
     , CaseTerm(..)
     ) where
 
-import Control.Applicative
-import Control.Monad
-import Control.Monad.Reader.Class
-import Control.Monad.State.Class
-import Data.Map
-import Data.Monoid
-
-------------------------------------------------------------------------------
--- Execution
-------------------------------------------------------------------------------
-
--- | A Bash value.
-data Value = Value String | Array [String]
-    deriving (Eq, Ord, Show)
-
--- | The execution environment.
-data Env = Env
-    { -- | Environment parameters or variables.
-      envParameters :: Map String Value
-      -- | Environment functions.
-    , envFunctions  :: Map String (Bash ExitStatus)
-    }
-
--- | The empty environment.
-emptyEnv :: Env
-emptyEnv = Env mempty mempty
-
--- | A command's return code.
-data ExitStatus
-    -- | An unknown return code.
-    = Unknown
-    -- | A nonzero return code.
-    | Failure
-    -- | A zero return code.
-    | Success
-    deriving (Eq, Ord, Show, Enum, Bounded)
-
--- | The execution status. If the interpreter cannot fully simulate Bash,
--- the execution status will be set to 'Dirty' and execution will proceed
--- in a safe manner.
-data Status
-    -- | Indeterminate execution.
-    = Dirty
-    -- | Normal execution.
-    | Clean
-    deriving (Eq, Ord, Show, Enum, Bounded)
-
--- | The Bash execution monad.
-newtype Bash a = Bash { runBash :: Status -> Env -> Maybe (a, Env) }
-    deriving (Functor)
-
-instance Applicative Bash where
-    pure  = return
-    (<*>) = ap
-
-instance Alternative Bash where
-    empty = fail "empty"
-    (<|>) = mplus
-
-instance Monad Bash where
-    return a = Bash $ \_ s -> Just (a, s)
-    m >>= k  = Bash $ \r s -> do
-                   (a, s') <- runBash m r s
-                   runBash (k a) r s'
-    fail _   = Bash $ \_ _ -> Nothing
-
-instance MonadPlus Bash where
-    mzero     = fail "mzero"
-    mplus a b = Bash $ \r s -> runBash a r s `mplus` runBash b r s
-
-instance MonadReader Status Bash where
-    ask       = Bash $ \r s -> Just (r, s)
-    local f m = Bash $ \r s -> runBash m (f r) s
-    reader f  = Bash $ \r s -> Just (f r, s)
-
-instance MonadState Env Bash where
-    get     = Bash $ \_ s -> Just (s, s)
-    put s   = Bash $ \_ _ -> Just ((), s)
-    state f = Bash $ \_ s -> Just (f s)
+import Bash.Config.Env (Value)
 
 ------------------------------------------------------------------------------
 -- Commands
