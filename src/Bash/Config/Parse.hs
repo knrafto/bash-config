@@ -5,11 +5,7 @@
 -- context-sensitive lexical analysis. The parser communicates with the
 -- lexer by specifying lexical analysis modes.
 module Bash.Config.Parse
-    ( -- * Parser type
-      Parser
-    , parse
-      -- * Bash
-    , inputUnit
+    ( parse
     ) where
 
 import           Control.Applicative    hiding (optional, many)
@@ -31,9 +27,9 @@ import           Bash.Config.Lexer
 -- | A Bash parser.
 type Parser = ParsecT Tokens () Identity
 
--- | Run a parser with a source name and a 'String' input.
-parse :: Parser a -> SourceName -> String -> Either ParseError a
-parse p name s = P.parse p name (makeTokens NormalMode name s)
+-- | Run the parser with a source name and a 'String' input.
+parse :: SourceName -> String -> Either ParseError Script
+parse name s = P.parse script name (makeTokens NormalMode name s)
 
 -------------------------------------------------------------------------------
 -- Parser primitives
@@ -376,6 +372,6 @@ command = baseCommand <* redirList
         w <- unreservedWord
         FunctionDef <$> functionDef2 w <|> Simple <$> simpleCommand w
 
--- | Parse the entire input unit (e.g. a file) as a list of commands.
-inputUnit :: Parser List
-inputUnit = compoundList <* eof
+-- | Parse an entire script (e.g. a file) as a list of commands.
+script :: Parser Script
+script = Script <$> compoundList <* eof

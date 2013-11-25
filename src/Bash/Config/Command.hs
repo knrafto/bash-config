@@ -1,7 +1,8 @@
 -- | Bash shell script types. This does not fully represent parts that
 -- aren't interpreted, such as redirections or arithmetic expressions.
 module Bash.Config.Command
-    ( Command(..)
+    ( Script(..)
+    , Command(..)
       -- ** Lists
     , List(..)
     , AndOr(..)
@@ -20,9 +21,9 @@ module Bash.Config.Command
 
 import Bash.Config.Env (Value)
 
-------------------------------------------------------------------------------
--- Commands
-------------------------------------------------------------------------------
+-- | A Bash script.
+newtype Script = Script List
+    deriving (Eq, Show)
 
 -- | A Bash command.
 data Command

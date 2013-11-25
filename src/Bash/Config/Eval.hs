@@ -83,6 +83,9 @@ instance Eval a => Eval [a] where
     eval [] = return Success
     eval cs = last <$> mapM eval cs
 
+instance Eval Script where
+    eval (Script l) = eval l
+
 instance Eval Command where
     eval (Simple c     ) = eval c
     eval (Shell c      ) = eval c
