@@ -5,7 +5,7 @@ module Bash.Config.Eval
     ) where
 
 import           Control.Applicative
-import           Control.Lens               hiding (assign, op)
+import           Control.Lens               hiding (assign, op, set)
 import           Control.Monad.Reader.Class
 import           Control.Monad.State.Class
 import           Data.Map                   (Map)
@@ -36,32 +36,33 @@ append (Array as) (Value b ) = Value $ case as of
     []  -> b
     a:_ -> a ++ b
 
--- | Return 'Just' if the current execution status if 'Clean',
--- and 'Nothing' otherwise.
-binding :: a -> Bash (Maybe a)
-binding a = asks $ \case
-    Dirty -> Nothing
-    Clean -> Just a
+-- | Get the value of a binding.
+value :: String -> Bash Value
+value name = use (parameters . at name) >>= \case
+    Nothing -> empty
+    Just v  -> return v
 
--- | Set a shell parameter.
-assign :: String -> Value -> Bash ()
-assign name value = do
-    mvalue <- binding value
-    parameters . at name .= mvalue
+-- | Set a shell parameter. Fails if the current execution status is dirty.
+set :: String -> Value -> Bash ()
+set name a = whenClean $ parameters . at name ?= a
+
+-- | Unset a shell parameter.
+unset :: String -> Bash ()
+unset name = parameters . at name .= Nothing
 
 -- | Add to a shell parameter.
 augment :: String -> Value -> Bash ()
-augment name value = do
-    a <- use (parameters . at name)
-    b <- binding value
-    let mvalue = append <$> a <*> b
-    parameters . at name .= mvalue
+augment name b = do
+    a <- value name
+    set name (append a b)
 
--- | Define a shell function.
+-- | Define a shell function. Fails if the current execution status is dirty.
 define :: String -> Bash ExitStatus -> Bash ()
-define name body = do
-    mbody <- binding body
-    functions . at name .= mbody
+define name body = whenClean $ functions . at name ?= body
+
+-- | Undefine a shell function.
+undefine :: String -> Bash ()
+undefine name = functions . at name .= Nothing
 
 ------------------------------------------------------------------------------
 -- Commands
@@ -80,9 +81,15 @@ command name args = do
 -- Execution
 ------------------------------------------------------------------------------
 
--- | Evaluate with a 'Dirty' status.
+-- | Evaluate with a dirty status.
 dirty :: Eval a => a -> Bash ExitStatus
 dirty a = Unknown <$ local (const Dirty) (eval a)
+
+-- | Fail if the current execution status is dirty.
+whenClean :: Bash a -> Bash a
+whenClean m = ask >>= \case
+    Dirty -> empty
+    Clean -> m
 
 -- | Execute in a subshell. Environment changes during the subshell execution
 -- will not affect the outside environment.
@@ -136,19 +143,22 @@ instance Eval Pipeline where
 
 
 instance Eval SimpleCommand where
-    eval (SimpleCommand as ws) = expandWords ws >>= \case
-        []     -> eval as
-        c:args -> command c args
+    eval (SimpleCommand as ws) = optional (expandWords ws) >>= \case
+        Nothing       -> return Unknown
+        Just []       -> eval as
+        Just (c:args) -> command c args
 
 instance Eval Assign where
-    eval (Assign name op value) = do
-        value' <- expandValue value
-        Success <$ case op of
-            Equals     -> assign name value'
-            PlusEquals -> augment name value'
+    eval (Assign name op a) = Success <$ (assign name =<< expandValue a)
+                          <|> Unknown <$ unset name
+      where
+        assign = case op of
+            Equals     -> set
+            PlusEquals -> augment
 
 instance Eval Function where
     eval (Function name body) = Success <$ define name (eval body)
+                            <|> Unknown <$ undefine name
 
 instance Eval ShellCommand where
     eval (Subshell l  ) = subshell l
