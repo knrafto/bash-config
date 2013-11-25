@@ -42,10 +42,9 @@ import           Data.Monoid
 import           Text.Parsec               (Stream(..))
 import           Text.Parsec.Pos           (SourceName, SourcePos)
 
-import           Bash.Config.Command
-import           Bash.Config.Env
 import           Bash.Config.Source        (Source)
 import qualified Bash.Config.Source        as S
+import           Bash.Config.Types
 
 -------------------------------------------------------------------------------
 -- Tokens

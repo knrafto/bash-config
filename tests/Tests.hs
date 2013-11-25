@@ -8,9 +8,8 @@ import Test.HUnit
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Bash.Config.Command
-import Bash.Config.Env
 import Bash.Config.Lexer
+import Bash.Config.Types
 
 token :: TokenMode -> String -> Token -> Assertion
 token m s expected = case nextToken (makeTokens m "" s) of

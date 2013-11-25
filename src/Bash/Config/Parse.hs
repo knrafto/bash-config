@@ -16,9 +16,9 @@ import           Text.Parsec.Pos
 import           Text.Parsec.Prim       (ParsecT, skipMany, many)
 import qualified Text.Parsec.Prim       as P
 
-import           Bash.Config.Command
 import           Bash.Config.Expand
 import           Bash.Config.Lexer
+import           Bash.Config.Types
 
 -------------------------------------------------------------------------------
 -- Parser type

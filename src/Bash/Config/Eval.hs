@@ -11,10 +11,9 @@ import           Data.Map                   (Map)
 import qualified Data.Map                   as Map
 import           Data.Monoid                hiding (Last)
 
-import           Bash.Config.Command
 import           Bash.Config.Cond
-import           Bash.Config.Env
 import           Bash.Config.Expand
+import           Bash.Config.Types
 
 -- | Evaluate with a dirty status.
 dirty :: Eval a => a -> Bash ExitStatus
