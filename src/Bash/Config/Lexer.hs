@@ -4,8 +4,6 @@
   , FlexibleInstances
   , LambdaCase
   , MultiParamTypeClasses
-  , Rank2Types
-  , TemplateHaskell
   #-}
 -- | The Bash lexer.
 --
@@ -33,22 +31,21 @@ module Bash.Config.Lexer
     , queueHeredoc
     ) where
 
-import           Prelude              hiding (span)
+import           Prelude                   hiding (span)
 
 import           Control.Applicative
-import           Control.Lens         hiding (assign, op)
-import           Control.Monad.State
+import           Control.Monad
+import           Control.Monad.State.Class
 import           Data.Char
-import           Data.Functor.Compose
-import           Data.List            hiding (span)
+import           Data.List                 hiding (span)
 import           Data.Monoid
-import           Text.Parsec          (Stream(..))
-import           Text.Parsec.Pos      (SourceName, SourcePos)
+import           Text.Parsec               (Stream(..))
+import           Text.Parsec.Pos           (SourceName, SourcePos)
 
 import           Bash.Config.Command
 import           Bash.Config.Env
-import           Bash.Config.Source   (Source)
-import qualified Bash.Config.Source   as S
+import           Bash.Config.Source        (Source)
+import qualified Bash.Config.Source        as S
 
 -------------------------------------------------------------------------------
 -- Tokens
@@ -146,21 +143,19 @@ normalOps = redirOps ++ heredocOps ++ controlOps
 -- | The lexer state.
 data LexerState = LexerState
     { -- | The underlying source.
-      _source   :: Source
+      source   :: Source
       -- | A string buffer, used to hold the current token.
-    , _buffer   :: Endo String
+    , buffer   :: Endo String
       -- | A list of needed heredoc delimiters, in reverse order.
-    , _heredocs :: [String]
+    , heredocs :: [String]
     }
-
-makeLenses ''LexerState
 
 -- | Construct a new lexer state from a 'Source'.
 makeLexerState :: Source -> LexerState
 makeLexerState s = LexerState
-    { _source   = s
-    , _buffer   = mempty
-    , _heredocs = []
+    { source   = s
+    , buffer   = mempty
+    , heredocs = []
     }
 
 -------------------------------------------------------------------------------
@@ -195,32 +190,34 @@ instance MonadState LexerState Lexer where
     put s   = Lexer $ \_ -> Just ((), s)
     state f = Lexer $ Just . f
 
-infix 4 %%?=
-
--- | Modify the target of a lens using a transformation that could fail.
-(%%?=) :: Lens' LexerState b -> (b -> Maybe (a, b)) -> Lexer a
-l %%?= f = Lexer $ getCompose <$> l (Compose <$> f)
-
 -------------------------------------------------------------------------------
 -- Lexer primitives
 -------------------------------------------------------------------------------
+
+-- | A flipped version of `(<$>)`.
+(<&>) :: Functor f => f a -> (a -> b) -> f b
+(<&>) = flip fmap
 
 -- | Use the lexer's internal buffer to lex a string, and returns the
 -- buffer's. Clears the buffer both before and after running the lexer.
 withBuffer :: Lexer () -> Lexer String
 withBuffer action = do
-    buffer .= mempty
+    modify $ \s -> s { buffer = mempty }
     action
-    b <- buffer <<.= mempty
+    b <- gets buffer
+    modify $ \s -> s { buffer = mempty }
     return (appEndo b "")
 
 -- | Return the next character.
 peekChar :: Lexer (Maybe Char)
-peekChar = uses source S.peekChar
+peekChar = gets (S.peekChar . source)
 
 -- | Take the next character from the source.
 takeChar :: Lexer Char
-takeChar = source %%?= S.takeChar
+takeChar = gets (S.takeChar . source) >>= \case
+    Nothing      -> empty
+    Just (c, s') -> do modify $ \s -> s { source = s' }
+                       return c
 
 -- | Take a line of characters from the source, stripping the trailing
 -- newline (if any).
@@ -231,7 +228,7 @@ takeLine = takeChar >>= \case
 
 -- | Add a character to the buffer.
 addChar :: Char -> Lexer ()
-addChar c = buffer <>= Endo (c:)
+addChar c = modify $ \s -> s { buffer = buffer s <> Endo (c:) }
 
 -- | Move a character from the source to the buffer.
 moveChar :: Lexer ()
@@ -279,7 +276,7 @@ span end f = go
 
 -- | Tag a lexed token with its location.
 locate :: Lexer Token -> Lexer Located
-locate l = Located <$> uses source S.sourcePos <*> l
+locate l = Located <$> gets (S.sourcePos . source) <*> l
 
 -------------------------------------------------------------------------------
 -- Basic Bash lexers
@@ -306,7 +303,8 @@ newline :: Lexer String
 newline = do
     c <- takeChar
     guard (c == '\n')
-    hs <- heredocs <<.= mempty
+    hs <- gets heredocs
+    modify $ \s -> s { heredocs = [] }
     mapM_ skipHeredoc (reverse hs)
     return "\n"
 
@@ -530,4 +528,6 @@ setTokenMode mode i = toTokens (lexerState i) mode
 
 -- | Notify the lexer that a heredoc delimited by a word is needed.
 queueHeredoc :: String -> Tokens -> Tokens
-queueHeredoc s i = toTokens (lexerState i & over heredocs (s :)) (tokenMode i)
+queueHeredoc h i = toTokens (addHeredoc $ lexerState i) (tokenMode i)
+  where
+    addHeredoc s = s { heredocs = h : heredocs s }

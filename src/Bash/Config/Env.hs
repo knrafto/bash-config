@@ -114,11 +114,15 @@ whenClean m = ask >>= \case
 -- Parameters
 -------------------------------------------------------------------------------
 
+-- | Modify the shell parameter map.
+modifyParameters
+    :: (Map String Value -> Map String Value)
+    -> Bash ()
+modifyParameters f = modify $ \env -> env { parameters = f (parameters env) }
+
 -- | Set a shell parameter. Fails if the current execution status is dirty.
 set :: String -> Value -> Bash ()
-set name a = whenClean $ do
-    params <- gets parameters
-    modify $ \env -> env { parameters = Map.insert name a params }
+set name a = whenClean $ modifyParameters (Map.insert name a)
 
 -- | Add to a shell parameter.
 augment :: String -> Value -> Bash ()
@@ -135,9 +139,7 @@ augment name b = do
 
 -- | Unset a shell parameter.
 unset :: String -> Bash ()
-unset name = do
-    params <- gets parameters
-    modify $ \env -> env { parameters = Map.delete name params }
+unset name = modifyParameters (Map.delete name)
 
 -- | Get the value of a binding, if it is known.
 value :: String -> Bash Value
@@ -149,17 +151,19 @@ value name = gets (Map.lookup name . parameters) >>= \case
 -- Functions
 -------------------------------------------------------------------------------
 
+-- | Modify the shell function map.
+modifyFunctions
+    :: (Map String (Bash ExitStatus) -> Map String (Bash ExitStatus))
+    -> Bash ()
+modifyFunctions f = modify $ \env -> env { functions = f (functions env) }
+
 -- | Define a shell function. Fails if the current execution status is dirty.
 define :: String -> Bash ExitStatus -> Bash ()
-define name body = whenClean $ do
-    defined <- gets functions
-    modify $ \env -> env { functions = Map.insert name body defined }
+define name body = whenClean $ modifyFunctions (Map.insert name body)
 
 -- | Undefine a shell function.
 undefine :: String -> Bash ()
-undefine name = do
-    defined <- gets functions
-    modify $ \env -> env { functions = Map.delete name defined }
+undefine name = modifyFunctions (Map.delete name)
 
 -- | Call a user-defined function, if it exists.
 call :: String -> Bash ExitStatus
