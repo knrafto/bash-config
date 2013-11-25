@@ -12,10 +12,10 @@ import           Data.Map                   (Map)
 import qualified Data.Map                   as Map
 import           Data.Monoid                hiding (Last)
 
+import           Bash.Config.Command
 import           Bash.Config.Cond
 import           Bash.Config.Env
 import           Bash.Config.Expand
-import           Bash.Config.Types
 
 -- | Interpret a Bash source.
 interpret :: Eval a => a -> Env -> Maybe Env
