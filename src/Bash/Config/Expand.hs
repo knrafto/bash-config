@@ -8,10 +8,10 @@ module Bash.Config.Expand
 import Bash.Config.Types
 
 unquote :: String -> String
-unquote = undefined
+unquote = id  -- TODO
 
 expandWords :: [String] -> Bash [String]
-expandWords = undefined
+expandWords = return  -- TODO
 
 expandValue :: Value -> Bash Value
-expandValue = undefined
+expandValue = return  -- TODO
