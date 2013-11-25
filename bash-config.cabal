@@ -36,6 +36,7 @@ library
   hs-source-dirs: src
 
   exposed-modules:
+    Bash.Config
     Bash.Config.Cond
     Bash.Config.Expand
     Bash.Config.Eval
