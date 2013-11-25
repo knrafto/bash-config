@@ -3,9 +3,10 @@
 -- aren't interpreted, such as redirections or arithmetic expressions.
 module Bash.Config.Types
     ( -- * Execution
-      Status(..)
-    , Env(..)
+      Env(..)
     , emptyEnv
+    , ReturnCode(..)
+    , Status(..)
     , Bash(..)
       -- * Commands
     , Command(..)
@@ -26,6 +27,7 @@ module Bash.Config.Types
     , CaseTerm(..)
       -- * Miscellaneous
     , unquote
+    , append
     ) where
 
 import Control.Applicative
@@ -39,6 +41,28 @@ import Data.Monoid
 -- Execution
 ------------------------------------------------------------------------------
 
+-- | The execution environment.
+data Env = Env
+    { -- | Environment parameters or variables.
+      envParameters :: Map String Value
+      -- | Environment functions.
+    , envFunctions  :: Map String (Bash ReturnCode)
+    }
+
+-- | The empty environment.
+emptyEnv :: Env
+emptyEnv = Env mempty mempty
+
+-- | A command's return code.
+data ReturnCode
+    -- | An unknown return code.
+    = Unknown
+    -- | A nonzero return code.
+    | Failure
+    -- | A zero return code.
+    | Success
+    deriving (Eq, Ord, Show, Enum, Bounded)
+
 -- | The execution status. If the interpreter cannot fully simulate Bash,
 -- the execution status will be set to 'Dirty' and execution will proceed
 -- in a safe manner.
@@ -48,18 +72,6 @@ data Status
     -- | Normal execution.
     | Clean
     deriving (Eq, Ord, Show, Enum, Bounded)
-
--- | The execution environment.
-data Env = Env
-    { -- | Environment parameters or variables.
-      envParameters :: Map String Value
-      -- | Environment functions.
-    , envFunctions  :: Map String ShellCommand
-    }
-
--- | The empty environment.
-emptyEnv :: Env
-emptyEnv = Env mempty mempty
 
 -- | The Bash execution monad.
 newtype Bash a = Bash { runBash :: Status -> Env -> Maybe (a, Env) }
@@ -172,3 +184,7 @@ data CaseTerm
 -- | Remove all quoting from a word.
 unquote :: String -> String
 unquote = undefined  -- TODO
+
+-- | Append two values.
+append :: Value -> Value -> Value
+append = undefined  -- TODO
