@@ -3,7 +3,8 @@
 -- aren't interpreted, such as redirections or arithmetic expressions.
 module Bash.Config.Types
     ( -- * Execution
-      Env(..)
+      Value(..)
+    , Env(..)
     , emptyEnv
     , ExitStatus(..)
     , Status(..)
@@ -18,7 +19,6 @@ module Bash.Config.Types
     , SimpleCommand(..)
     , Assign(..)
     , AssignOp(..)
-    , Value(..)
       -- ** Functions
     , Function(..)
       -- ** Shell commands
@@ -37,6 +37,10 @@ import Data.Monoid
 ------------------------------------------------------------------------------
 -- Execution
 ------------------------------------------------------------------------------
+
+-- | A Bash value.
+data Value = Value String | Array [String]
+    deriving (Eq, Ord, Show)
 
 -- | The execution environment.
 data Env = Env
@@ -140,10 +144,6 @@ data Assign = Assign String AssignOp Value
 
 -- | An assignment operator (@=@ or @+=@).
 data AssignOp = Equals | PlusEquals
-    deriving (Eq, Show)
-
--- | The assigned value.
-data Value = Value String | Array [String]
     deriving (Eq, Show)
 
 -- | A function definition.
