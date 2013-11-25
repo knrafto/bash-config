@@ -2,6 +2,7 @@
 -- | Bash script evaluation.
 module Bash.Config.Eval
     ( Eval(..)
+    , interpret
     ) where
 
 import           Control.Applicative
@@ -14,6 +15,12 @@ import           Data.Monoid                hiding (Last)
 import           Bash.Config.Cond
 import           Bash.Config.Expand
 import           Bash.Config.Types
+
+-- | Interpret a script or function, returning the resulting environment
+-- variables and function definitions. Any variables or functions missing
+-- are assumed to be unknown.
+interpret :: Eval a => a -> Env -> Maybe Env
+interpret a = fmap snd . runBash (eval a) Clean
 
 -- | Evaluate with a dirty status.
 dirty :: Eval a => a -> Bash ExitStatus
