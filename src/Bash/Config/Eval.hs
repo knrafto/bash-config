@@ -2,7 +2,6 @@
 -- | Bash script evaluation.
 module Bash.Config.Eval
     ( Eval(..)
-    , interpret
     ) where
 
 import           Control.Applicative
@@ -16,10 +15,6 @@ import           Bash.Config.Command
 import           Bash.Config.Cond
 import           Bash.Config.Env
 import           Bash.Config.Expand
-
--- | Interpret a Bash source.
-interpret :: Eval a => a -> Env -> Maybe Env
-interpret a = fmap snd . runBash (eval a) Clean
 
 -- | Evaluate with a dirty status.
 dirty :: Eval a => a -> Bash ExitStatus
@@ -38,7 +33,7 @@ subshell a = do
 command :: String -> [String] -> Bash ExitStatus
 command name args = do
     defined <- gets functions
-    let allCommands = builtins <> fmap const defined
+    let allCommands = builtins <> fmap (const . eval) defined
     case Map.lookup name allCommands of
         Nothing -> return Unknown
         Just f  -> f args
@@ -134,7 +129,7 @@ instance Eval Assign where
             PlusEquals -> augment
 
 instance Eval Function where
-    eval (Function name body) = Success <$ define name (eval body)
+    eval (Function name body) = Success <$ define name (Script body)
                             <|> Unknown <$ undefine name
 
 instance Eval ShellCommand where

@@ -17,7 +17,6 @@ module Bash.Config.Env
       -- * Functions
     , define
     , undefine
-    , call
     ) where
 
 import           Control.Applicative
@@ -36,8 +35,8 @@ data Env = Env
     { -- | Environment parameters or variables.
       parameters :: Map String Value
       -- | Environment functions.
-    , functions  :: Map String (Bash ExitStatus)
-    }
+    , functions  :: Map String Script
+    } deriving (Eq, Show)
 
 -- | A Bash value.
 data Value = Value String | Array [String]
@@ -115,9 +114,7 @@ whenClean m = ask >>= \case
 -------------------------------------------------------------------------------
 
 -- | Modify the shell parameter map.
-modifyParameters
-    :: (Map String Value -> Map String Value)
-    -> Bash ()
+modifyParameters :: (Map String Value -> Map String Value) -> Bash ()
 modifyParameters f = modify $ \env -> env { parameters = f (parameters env) }
 
 -- | Set a shell parameter. Fails if the current execution status is dirty.
@@ -152,9 +149,7 @@ value name = gets (Map.lookup name . parameters) >>= \case
 -------------------------------------------------------------------------------
 
 -- | Modify the shell function map.
-modifyFunctions
-    :: (Map String (Bash ExitStatus) -> Map String (Bash ExitStatus))
-    -> Bash ()
+modifyFunctions :: (Map String Script -> Map String Script) -> Bash ()
 modifyFunctions f = modify $ \env -> env { functions = f (functions env) }
 
 -- | Define a shell function. Fails if the current execution status is dirty.
@@ -164,9 +159,3 @@ define name body = whenClean $ modifyFunctions (Map.insert name body)
 -- | Undefine a shell function.
 undefine :: String -> Bash ()
 undefine name = modifyFunctions (Map.delete name)
-
--- | Call a user-defined function, if it exists.
-call :: String -> Bash ExitStatus
-call name = gets (Map.lookup name . functions) >>= \case
-    Nothing -> empty
-    Just f  -> f
