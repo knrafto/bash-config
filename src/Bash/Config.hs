@@ -2,6 +2,7 @@
 module Bash.Config
     ( -- * Types
       Env(..)
+    , emptyEnv 
     , Value(..)
     , Script
     , Function
