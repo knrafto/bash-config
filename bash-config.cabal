@@ -27,6 +27,7 @@ description:
 extra-source-files:
   .gitignore
   README.md
+  tests/*.sh
 
 source-repository head
   type: git
@@ -65,4 +66,7 @@ test-suite tests
   build-depends:
     base,
     bash-config,
+    containers,
+    directory,
+    filepath,
     tasty
