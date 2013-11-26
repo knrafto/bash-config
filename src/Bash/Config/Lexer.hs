@@ -211,11 +211,16 @@ takeChar = gets (S.takeChar . source) >>= \case
                        return c
 
 -- | Take a line of characters from the source, stripping the trailing
--- newline (if any).
+-- newline (if any). Fails if there is not input left.
 takeLine :: Lexer String
-takeLine = takeChar >>= \case
-    '\n' -> return []
-    c    -> (c :) <$> takeLine
+takeLine = peekChar >>= \case
+    Nothing -> empty
+    _       -> go
+  where
+    go = peekChar >>= \case
+        Nothing   -> return []
+        Just '\n' -> takeChar >> return []
+        Just c    -> takeChar >> (c :) <$> go
 
 -- | Add a character to the buffer.
 addChar :: Char -> Lexer ()
@@ -299,9 +304,9 @@ newline = do
 skipHeredoc :: String -> Lexer ()
 skipHeredoc h = go
   where
-    go = do
-        l <- takeLine
-        unless (l == h) go
+    go = optional takeLine >>= \case
+        Just l | l /= h -> go
+        _               -> return ()
 
 -- | Move an arithmetic expression into the buffer.
 arith :: Lexer ()
