@@ -37,6 +37,7 @@ import           Control.Monad
 import           Control.Monad.State.Class
 import           Data.Char
 import           Data.List                 hiding (span)
+import           Data.Maybe
 import           Data.Monoid
 import           Text.Parsec               (Stream(..))
 import           Text.Parsec.Pos           (SourceName, SourcePos)
@@ -422,12 +423,10 @@ lexBash ArithMode  = lexArith
 
 -- | Lex a token in normal mode.
 lexNormal :: Lexer Token
-lexNormal = skipSpace *> token
-  where
-    token = normalWord
+lexNormal = normalWord
         <|> TOperator <$> newline
         <|> TOperator <$> operator normalOps
-
+  where
     normalWord = do
         w <- nonempty word
         peekChar <&> \case
@@ -438,7 +437,7 @@ lexNormal = skipSpace *> token
 
 -- | Lex a token in assignment mode.
 lexAssign :: Lexer Token
-lexAssign = TAssign <$ skipSpace <*> assign
+lexAssign = TAssign <$> assign
   where
     assign = Assign <$> lhs <*> assignOp <*> rhs
 
@@ -495,14 +494,15 @@ instance Monad m => Stream Tokens m Token where
 -- | Construct a token stream from a lexer state.
 toTokens :: LexerState -> TokenMode -> Tokens
 toTokens s mode = Tokens
-    { lexerState = s
+    { lexerState = s'
     , tokenMode  = mode
     , nextToken  = next
     }
   where
-    next = case runLexer (lexBash mode) s of
-        Just (t, s') -> Just (t, toTokens s' mode)
-        _            -> Nothing
+    s'   = fromMaybe s . fmap snd $ runLexer skipSpace s
+    next = case runLexer (lexBash mode) s' of
+        Just (t, s'') -> Just (t, toTokens s'' mode)
+        _             -> Nothing
 
 -- | Construct a named token stream.
 makeTokens :: TokenMode -> SourceName -> String -> Tokens

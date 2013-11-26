@@ -111,7 +111,7 @@ eof :: Parser ()
 eof = P.try (moreTokens <|> return ())
   where
     moreTokens = do
-        t <- anyToken
+        t <- P.lookAhead anyToken
         P.unexpected (showToken t)
 
 -------------------------------------------------------------------------------
