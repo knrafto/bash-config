@@ -37,6 +37,8 @@ library
 
   exposed-modules:
     Bash.Config
+
+  other-modules:
     Bash.Config.Cond
     Bash.Config.Expand
     Bash.Config.Eval
@@ -63,6 +65,4 @@ test-suite tests
   build-depends:
     base,
     bash-config,
-    HUnit,
-    tasty,
-    tasty-hunit
+    tasty
