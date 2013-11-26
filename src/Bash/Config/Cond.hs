@@ -6,4 +6,4 @@ module Bash.Config.Cond
 import Bash.Config.Types
 
 cond :: [String] -> Bash ExitStatus
-cond = undefined
+cond _ = return Success  -- TODO
