@@ -62,11 +62,11 @@ data Token
     | TAssign Assign
       -- | An arithmetic expression.
     | TArith String
-    deriving (Eq, Show)
+    deriving (Eq)
 
 -- | A token with a position.
 data Located = Located !SourcePos Token
-    deriving (Eq, Show)
+    deriving (Eq)
 
 -- | Lexer token modes.
 data TokenMode
@@ -76,7 +76,7 @@ data TokenMode
     | AssignMode
       -- | Lex arithmetic expressions.
     | ArithMode
-    deriving (Eq, Ord, Enum, Bounded, Show)
+    deriving (Eq, Ord, Enum, Bounded)
 
 -- | Convert a token to the string it represents.
 showToken :: Token -> String

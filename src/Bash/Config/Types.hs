@@ -55,11 +55,11 @@ data Env = Env
       parameters :: Map String Value
       -- | Environment functions.
     , functions  :: Map String Function
-    } deriving (Eq, Show)
+    } deriving (Eq)
 
 -- | A Bash value.
 data Value = Value String | Array [String]
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Ord, Read, Show)
 
 -- | The empty environment.
 emptyEnv :: Env
@@ -77,7 +77,7 @@ data ExitStatus
     | Failure
     -- | A zero return code.
     | Success
-    deriving (Eq, Ord, Show, Enum, Bounded)
+    deriving (Eq, Ord, Enum, Bounded)
 
 -- | The execution status. If the interpreter cannot fully simulate Bash,
 -- the execution status will be set to 'Dirty' and execution will proceed
@@ -87,7 +87,7 @@ data Status
     = Dirty
     -- | Normal execution.
     | Clean
-    deriving (Eq, Ord, Show, Enum, Bounded)
+    deriving (Eq, Ord, Enum, Bounded)
 
 -- | The Bash execution monad.
 newtype Bash a = Bash { runBash :: Status -> Env -> Maybe (a, Env) }
@@ -185,7 +185,7 @@ undefine name = modifyFunctions (Map.delete name)
 
 -- | A Bash script.
 newtype Script = Script List
-    deriving (Eq, Show)
+    deriving (Eq)
 
 -- | A Bash command.
 data Command
@@ -193,38 +193,38 @@ data Command
     | Shell ShellCommand
     | FunctionDef String Function
     | Coproc
-    deriving (Eq, Show)
+    deriving (Eq)
 
 -- | A compound list of statements, terminated by @&@ or @;@.
 newtype List = List [AndOr]
-    deriving (Eq, Show)
+    deriving (Eq)
 
 -- | A list of pipelines separated by @&&@ and @||@.
 data AndOr
     = Last Pipeline
     | And Pipeline AndOr
     | Or Pipeline AndOr
-    deriving (Eq, Show)
+    deriving (Eq)
 
 -- | A (possibly inverted) pipeline, linked with @|@ or @|&@.
 data Pipeline = Pipeline Bool [Command]
-    deriving (Eq, Show)
+    deriving (Eq)
 
 -- | A simple command.
 data SimpleCommand = SimpleCommand [Assign] [String]
-    deriving (Eq, Show)
+    deriving (Eq)
 
 -- | An assignment word.
 data Assign = Assign String AssignOp Value
-    deriving (Eq, Show)
+    deriving (Eq)
 
 -- | An assignment operator (@=@ or @+=@).
 data AssignOp = Equals | PlusEquals
-    deriving (Eq, Show)
+    deriving (Eq)
 
 -- | A function.
 newtype Function = Function ShellCommand
-    deriving (Eq, Show)
+    deriving (Eq)
 
 -- | A compound command.
 data ShellCommand
@@ -239,11 +239,11 @@ data ShellCommand
     | If List List List
     | Until List List
     | While List List
-    deriving (Eq, Show)
+    deriving (Eq)
 
 -- | A single case clause.
 data CaseClause = CaseClause [String] List CaseTerm
-    deriving (Eq, Show)
+    deriving (Eq)
 
 -- | A case clause terminator. A clause can either 'Break' out of the case
 -- statement with @;;@, 'FallThrough' to the next clause with @;&@, or
@@ -252,4 +252,4 @@ data CaseTerm
     = Break
     | FallThrough
     | Continue
-    deriving (Eq, Show)
+    deriving (Eq)
