@@ -47,9 +47,9 @@ withMode mode p = tokenMode mode *> p <* tokenMode NormalMode
 
 -- | A primitive token parser.
 token :: (Token -> Maybe a) -> Parser a
-token f = P.tokenPrim (showToken . untag) updatePos (f . untag)
+token = P.tokenPrim showToken updatePos
   where
-    updatePos _ (Located pos _) _ = pos
+    updatePos _ _ = sourcePos
 
 -- | Parse any token.
 anyToken :: Parser Token
