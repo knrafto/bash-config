@@ -111,7 +111,7 @@ eof :: Parser ()
 eof = P.try (moreTokens <|> return ())
   where
     moreTokens = do
-        t <- P.lookAhead anyToken
+        t <- anyToken
         P.unexpected (showToken t)
 
 -------------------------------------------------------------------------------
@@ -120,11 +120,11 @@ eof = P.try (moreTokens <|> return ())
 
 -- | Skip a list terminator.
 listTerm :: Parser ()
-listTerm = term <* newlineList
+listTerm = term *> newlineList
   where
-    term = () <$ operator "\n"
-       <|> () <$ operator ";"
-       <|> eof
+    term = operator "\n"
+       <|> operator ";"
+       <|> operator "&"
 
 -- | Skip zero or more newlines.
 newlineList :: Parser ()
@@ -172,7 +172,7 @@ assignCommand =
 
 -- | Parse a pipeline.
 pipelineCommand :: Parser Pipeline
-pipelineCommand = word "time" *> optional timeArgs *> (bang <|> pipeline0)
+pipelineCommand = time *> (bang <|> pipeline0)
               <|> bang
               <|> pipeline1
   where
@@ -183,6 +183,7 @@ pipelineCommand = word "time" *> optional timeArgs *> (bang <|> pipeline0)
 
     pipelineSep = (operator "|" <|> operator "|&") <* newlineList
 
+    time     = word "time" *> optional timeArgs
     timeArgs = word "-p" *> optional (word "--")
 
     invert (Pipeline b cs) = Pipeline (not b) cs
