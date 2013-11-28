@@ -133,7 +133,7 @@ instance Eval ShellCommand where
     eval (Arith _     ) = empty
     eval (Cond ws     ) = cond ws
     eval (For _ _ l   ) = dirty l
-    eval (ArithFor _ l) = dirty l
+    eval (ArithFor _ _) = empty
     eval (Select _ _ l) = dirty l
     eval (Case _ cs   ) = eval cs
     eval (If p t f    ) = eval p >>= \case
