@@ -8,7 +8,7 @@ module Bash.Config.Types
     , Value(..)
     , emptyEnv
       -- ** Execution
-    , ExitStatus(..)
+    , ExitStatus
     , Status(..)
     , Bash(..)
       -- ** Parameters
@@ -70,14 +70,7 @@ emptyEnv = Env Map.empty Map.empty
 -------------------------------------------------------------------------------
 
 -- | A command's return code.
-data ExitStatus
-    -- | An unknown return code.
-    = Unknown
-    -- | A nonzero return code.
-    | Failure
-    -- | A zero return code.
-    | Success
-    deriving (Eq, Ord, Enum, Bounded)
+type ExitStatus = Maybe Bool
 
 -- | The execution status. If the interpreter cannot fully simulate Bash,
 -- the execution status will be set to 'Dirty' and execution will proceed

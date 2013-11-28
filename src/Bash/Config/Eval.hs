@@ -24,7 +24,7 @@ interpret a = fmap snd . runBash (eval a) Clean
 
 -- | Evaluate with a dirty status.
 dirty :: Eval a => a -> Bash ExitStatus
-dirty a = Unknown <$ local (const Dirty) (eval a)
+dirty a = Nothing <$ local (const Dirty) (eval a)
 
 -- | Execute in a subshell. Environment changes during the subshell execution
 -- will not affect the outside environment.
@@ -41,7 +41,7 @@ command name args = do
     defined <- gets functions
     let allCommands = builtins <> fmap (const . eval) defined
     case Map.lookup name allCommands of
-        Nothing -> return Unknown
+        Nothing -> return Nothing
         Just f  -> f args
 
 -- | Interpreter builtins. These are commands the the interpreter knows
@@ -55,10 +55,10 @@ command name args = do
 builtins :: Map String ([String] -> Bash ExitStatus)
 builtins = Map.fromList $
     -- implemented builtins
-    [ ("test" , cond )
-    , ("["    , cond_)
-    , ("true" , \_ -> return Success)
-    , ("false", \_ -> return Failure)
+    [ ("test" , return . test )
+    , ("["    , return . test_)
+    , ("true" , \_ -> return (Just True) )
+    , ("false", \_ -> return (Just False))
     ]
     -- unsafe builtins
     ++ map (\name -> (name, const empty))
@@ -67,13 +67,6 @@ builtins = Map.fromList $
         , "readarray", "readonly", "return", "source", "trap", "typeset"
         , "unset", "unalias"
         ]
-  where
-    cond_ ws = case unsnoc ws of
-        Just (ws', "]") -> cond ws'
-        _               -> return Failure
-
-    unsnoc [] = Nothing
-    unsnoc xs = Just (init xs, last xs)
 
 -- | Executable commands.
 class Eval a where
@@ -81,7 +74,7 @@ class Eval a where
     eval :: a -> Bash ExitStatus
 
 instance Eval a => Eval [a] where
-    eval [] = return Success
+    eval [] = return (Just True)
     eval cs = last <$> mapM eval cs
 
 instance Eval Script where
@@ -90,8 +83,8 @@ instance Eval Script where
 instance Eval Command where
     eval (Simple c) = eval c
     eval (Shell c)  = eval c
-    eval (FunctionDef name f) = Success <$ define name f
-                            <|> Unknown <$ undefine name
+    eval (FunctionDef name f) = Just True <$ define name f
+                            <|> Nothing   <$ undefine name
     eval Coproc     = empty
 
 instance Eval List where
@@ -100,35 +93,32 @@ instance Eval List where
 instance Eval AndOr where
     eval (Last p  ) = eval p
     eval (And p cs) = eval p >>= \case
-        Unknown -> dirty cs
-        Failure -> return Failure
-        Success -> eval cs
+        Nothing    -> dirty cs
+        Just False -> return (Just False)
+        Just True  -> eval cs
     eval (Or  p cs) = eval p >>= \case
-        Unknown -> dirty cs
-        Failure -> eval cs
-        Success -> return Success
+        Nothing    -> dirty cs
+        Just False -> eval cs
+        Just True  -> return (Just True)
 
 instance Eval Pipeline where
     eval (Pipeline b cs) = bang $ case cs of
-        []  -> return Success
+        []  -> return (Just True)
         [c] -> eval c
         _   -> subshell cs
       where
         bang   = if b then invert else id
-        invert = fmap $ \case
-            Unknown -> Unknown
-            Failure -> Success
-            Success -> Failure
+        invert = fmap (fmap not)
 
 instance Eval SimpleCommand where
     eval (SimpleCommand as ws) = optional (expandWords ws) >>= \case
-        Nothing       -> return Unknown
+        Nothing       -> return Nothing
         Just []       -> eval as
         Just (c:args) -> command c args
 
 instance Eval Assign where
-    eval (Assign name op a) = Success <$ (assign name =<< expandValue a)
-                          <|> Unknown <$ unset name
+    eval (Assign name op a) = Just True <$ (assign name =<< expandValue a)
+                          <|> Nothing   <$ unset name
       where
         assign = case op of
             Equals     -> set
@@ -147,9 +137,8 @@ instance Eval ShellCommand where
     eval (Select _ _ l) = dirty l
     eval (Case _ cs   ) = eval cs
     eval (If p t f    ) = eval p >>= \case
-        Unknown -> dirty t >> dirty f
-        Failure -> eval f
-        Success -> eval t
+        Nothing -> dirty t >> dirty f
+        Just r  -> eval $ if r then t else f
     eval (Until p l   ) = dirty p >> dirty l
     eval (While p l   ) = dirty p >> dirty l
 
