@@ -111,7 +111,7 @@ instance Eval Pipeline where
         invert = fmap (fmap not)
 
 instance Eval SimpleCommand where
-    eval (SimpleCommand as ws) = optional (expandWords ws) >>= \case
+    eval (SimpleCommand as ws) = optional (expandWordList ws) >>= \case
         Nothing       -> return Nothing
         Just []       -> eval as
         Just (c:args) -> command c args
