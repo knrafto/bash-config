@@ -351,7 +351,7 @@ word = withBuffer go
         '\''                   -> continue singleQuote_
         '\"'                   -> continue doubleQuote_
         '`'                    -> continue backquote_
-        '$'                    -> continue dollar_
+        '$'                    -> continue bareDollar_
         '<'                    -> continue angle_ <|> return ()
         '>'                    -> continue angle_ <|> return ()
         c | c `elem` metachars -> return ()
@@ -381,7 +381,7 @@ word = withBuffer go
 
     backquote_ = span '`' $ \case
         '\\' -> moveChar
-        '$'  -> dollar_
+        '$'  -> bareDollar_
         _    -> return ()
 
     parameter_ = span '}' $ \case
@@ -392,9 +392,12 @@ word = withBuffer go
         '$'  -> dollar_
         _    -> return ()
 
-    dollar_ = peekChar >>= \case
+    bareDollar_ = peekChar >>= \case
         Just '\'' -> moveChar >> ansiQuote_
         Just '\"' -> moveChar >> doubleQuote_
+        _         -> dollar_
+
+    dollar_ = peekChar >>= \case
         Just '('  -> moveChar >> dollarParen_
         Just '{'  -> moveChar >> parameter_
         _         -> return ()
@@ -410,7 +413,7 @@ word = withBuffer go
         '\"' -> doubleQuote_
         '`'  -> backquote_
         '('  -> paren_
-        '$'  -> dollar_
+        '$'  -> bareDollar_
         '#'  -> moveWhile (/= '\n')  -- comment
         _    -> return ()
 
