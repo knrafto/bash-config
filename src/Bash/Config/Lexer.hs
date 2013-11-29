@@ -34,16 +34,17 @@ import           Prelude                   hiding (span)
 
 import           Control.Applicative
 import           Control.Monad
-import           Control.Monad.State.Class
 import           Data.Char
+import           Data.Functor.Identity
 import           Data.List                 hiding (span)
 import           Data.Maybe
 import           Data.Monoid
-import           Text.Parsec               (Stream(..))
-import           Text.Parsec.Pos           (SourceName, SourcePos)
+import           Text.Parsec.Char          hiding (newline)
+import           Text.Parsec.Prim          hiding ((<|>), many)
+import           Text.Parsec.Pos
 
-import           Bash.Config.Source        (Source)
-import qualified Bash.Config.Source        as S
+import           Bash.Config.Builder       (Builder, (<+>))
+import qualified Bash.Config.Builder       as B
 import           Bash.Config.Types
 
 -------------------------------------------------------------------------------
@@ -128,175 +129,80 @@ normalOps :: [String]
 normalOps = redirOps ++ heredocOps ++ controlOps
 
 -------------------------------------------------------------------------------
--- Lexer state
+-- Lexer type
 -------------------------------------------------------------------------------
 
 -- | The lexer state.
-data LexerState = LexerState
-    { -- | The underlying source.
-      source   :: Source
-      -- | A string buffer, used to hold the current token.
-    , buffer   :: Endo String
-      -- | A list of needed heredoc delimiters, in reverse order.
-    , heredocs :: [String]
+newtype LexerState = LexerState
+    { -- | A list of heredoc delimiters, in reverse order.
+      heredocs :: [String]
     }
 
--- | Construct a new lexer state from a 'Source'.
-makeLexerState :: Source -> LexerState
-makeLexerState s = LexerState
-    { source   = s
-    , buffer   = mempty
-    , heredocs = []
-    }
+-- | Parsec's state.
+type ParsecState = State String LexerState
+
+-- | Construct a new lexer state.
+initialState :: LexerState
+initialState = LexerState { heredocs = [] }
+
+-- | Push a new heredoc delimiter.
+addHeredoc :: String -> LexerState -> LexerState
+addHeredoc h s = s { heredocs = h : heredocs s }
+
+-- | The lexer monad.
+type Lexer = Parsec String LexerState
+
+-- | Run the lexer.
+runLexer :: Lexer a -> ParsecState -> Maybe (a, ParsecState)
+runLexer m s = case reply of
+    Ok a s' _ -> Just (a, s')
+    _         -> Nothing
+  where
+    consumed = runIdentity $ runParsecT m s
+    reply    = runIdentity $ case consumed of
+        Consumed a -> a
+        Empty a    -> a
 
 -------------------------------------------------------------------------------
--- Lexer monad
--------------------------------------------------------------------------------
-
--- | A backtracking lexer monad.
-newtype Lexer a = Lexer { runLexer :: LexerState -> Maybe (a, LexerState) }
-    deriving (Functor)
-
-instance Applicative Lexer where
-    pure  = return
-    (<*>) = ap
-
-instance Alternative Lexer where
-    empty = mzero
-    (<|>) = mplus
-
-instance Monad Lexer where
-    return a = Lexer $ \s -> Just (a, s)
-    m >>= k  = Lexer $ \s -> do
-        (a, s') <- runLexer m s
-        runLexer (k a) s'
-    fail _   = mzero
-
-instance MonadPlus Lexer where
-    mzero     = Lexer $ \_ -> Nothing
-    mplus a b = Lexer $ \s -> runLexer a s `mplus` runLexer b s
-
-instance MonadState LexerState Lexer where
-    get     = Lexer $ \s -> Just (s, s)
-    put s   = Lexer $ \_ -> Just ((), s)
-    state f = Lexer $ Just . f
-
--------------------------------------------------------------------------------
--- Lexer primitives
+-- Basic Bash lexers
 -------------------------------------------------------------------------------
 
 -- | A flipped version of `(<$>)`.
 (<&>) :: Functor f => f a -> (a -> b) -> f b
 (<&>) = flip fmap
 
--- | Use the lexer's internal buffer to lex a string, and returns the
--- buffer's. Clears the buffer both before and after running the lexer.
-withBuffer :: Lexer () -> Lexer String
-withBuffer action = do
-    modify $ \s -> s { buffer = mempty }
-    action
-    b <- gets buffer
-    modify $ \s -> s { buffer = mempty }
-    return (appEndo b "")
+-- | Ensure that a lexer's output is nonempty.
+nonempty :: MonadPlus m => m [a] -> m [a]
+nonempty m = m >>= \xs -> if null xs then mzero else return xs
 
--- | Return the next character.
-peekChar :: Lexer (Maybe Char)
-peekChar = gets (S.peekChar . source)
-
--- | Take the next character from the source.
-takeChar :: Lexer Char
-takeChar = gets (S.takeChar . source) >>= \case
-    Nothing      -> empty
-    Just (c, s') -> do modify $ \s -> s { source = s' }
-                       return c
+-- | Parse a span between two characters.
+span :: Char -> Char -> Lexer Builder -> Lexer Builder
+span start end p = B.char start <+> rest
+  where
+    rest = B.char end <|> p <+> rest
 
 -- | Take a line of characters from the source, stripping the trailing
--- newline (if any). Fails if there is not input left.
+-- newline (if any). Fails if there is no input left.
 takeLine :: Lexer String
-takeLine = peekChar >>= \case
-    Nothing -> empty
-    _       -> go
-  where
-    go = peekChar >>= \case
-        Nothing   -> return []
-        Just '\n' -> takeChar >> return []
-        Just c    -> takeChar >> (c :) <$> go
-
--- | Add a character to the buffer.
-addChar :: Char -> Lexer ()
-addChar c = modify $ \s -> s { buffer = buffer s <> Endo (c:) }
-
--- | Move a character from the source to the buffer.
-moveChar :: Lexer ()
-moveChar = takeChar >>= addChar
-
--- | Move a character from the source to the buffer if the predicate is
--- satisfied, and fails otherwise.
-satisfy :: (Char -> Bool) -> Lexer ()
-satisfy p = peekChar >>= \case
-    Just c | p c -> moveChar
-    _            -> empty
-
--- | Continue skipping characters until the predicate is satisfied.
-skipWhile :: (Char -> Bool) -> Lexer ()
-skipWhile p = go
-  where
-    go = peekChar >>= \case
-        Just c | p c -> takeChar >> go
-        _            -> return ()
-
--- | Continue moving characters from the source to the buffer while the
--- predicate is satisfied. This lexer does not fail.
-moveWhile :: (Char -> Bool) -> Lexer ()
-moveWhile p = go
-  where
-    go = peekChar >>= \case
-        Just c | p c -> moveChar >> go
-        _            -> return ()
-
--- | Ensure that a lexer's output is nonempty.
-nonempty :: Lexer [a] -> Lexer [a]
-nonempty l = l >>= \xs -> if null xs then empty else return xs
-
--- | @span end f@ moves a string character-by-character until the
--- character @end@ is found and moved. For each character, the lexer
--- @f@ is run, which may handle escape sequences, comments, or other
--- special sequences.
-span :: Char -> (Char -> Lexer ()) -> Lexer ()
-span end f = go
-  where
-    go = peekChar >>= \case
-        Nothing -> empty
-        Just c  -> do moveChar
-                      unless (c == end) $ f c >> go
-
--------------------------------------------------------------------------------
--- Basic Bash lexers
--------------------------------------------------------------------------------
+takeLine = B.toString
+       <$  lookAhead anyChar
+       <*> B.many (B.satisfy (/= '\n'))
+       <*  optional (char '\n')
 
 -- | Skip spaces, tabs, and comments.
 skipSpace :: Lexer ()
-skipSpace = go
+skipSpace = () <$ many spaceChar <* optional comment
   where
-    go = peekChar >>= \case
-        Just ' '  -> takeChar >> go
-        Just '\t' -> takeChar >> go
-        Just '\\' -> (escape >> go) <|> return ()
-        Just '#'  -> skipWhile (/= '\n')
-        _         -> return ()
-
-    escape = do
-        _ <- takeChar
-        n <- takeChar
-        guard (n == '\n')
+    spaceChar = try escape <|> satisfy (`elem` " \t")
+    escape    = char '\\' *> char '\n'
+    comment   = char '#' *> skipMany (satisfy (/= '\n'))
 
 -- | Lex a newline, and skip any following heredocs.
 newline :: Lexer String
 newline = do
-    c <- takeChar
-    guard (c == '\n')
-    hs <- gets heredocs
-    modify $ \s -> s { heredocs = [] }
+    _ <- char '\n'
+    hs <- heredocs <$> getState
+    modifyState $ \s -> s { heredocs = [] }
     mapM_ skipHeredoc (reverse hs)
     return "\n"
 
@@ -308,116 +214,91 @@ skipHeredoc h = go
         Just l | l /= h -> go
         _               -> return ()
 
--- | Move an arithmetic expression into the buffer.
-arith :: Lexer ()
-arith = go
+-- | Parse an arithmetic expression.
+arith :: Lexer Builder
+arith = B.many (parens <|> B.satisfy (/= ')'))
   where
-    go = peekChar >>= \case
-        Nothing  -> return ()
-        Just ')' -> return ()
-        Just '(' -> moveChar >> paren_ >> go
-        _        -> moveChar >> go
-
-    paren_ = span ')' $ \case
-        '(' -> paren_
-        _   -> return ()
+    parens = span '(' ')' (parens <|> B.anyChar)
 
 -- | Lex the longest available operator from a list.
 operator :: [String] -> Lexer String
-operator = withBuffer . go
+operator = fmap B.toString . go
   where
     go ops
         | null ops      = empty
-        | "" `elem` ops = continue ops <|> return ()
+        | "" `elem` ops = try (continue ops) <|> pure mempty
         | otherwise     = continue ops
 
     continue ops = do
-        c <- takeChar
-        addChar c
-        go (prefix c ops)
+        c <- anyChar
+        pure (B.fromChar c) <+> go (prefix c ops)
 
     prefix c = map tail . filter (\x -> not (null x) && head x == c)
 
 -- | Lex a word, obeying and preserving quoting rules.
 word :: Lexer String
-word = withBuffer go
+word = B.toString <$> go
   where
-    go = peekChar >>= \case
-        Nothing -> return ()
-        Just c  -> char c
+    go = B.many $ try newlineEscape
+              <|> escape
+              <|> singleQuote
+              <|> doubleQuote
+              <|> try ansiQuote
+              <|> try localeQuote
+              <|> dollar
+              <|> try angle
+              <|> B.satisfy (`notElem` metachars)
 
-    char = \case
-        '\\'                   -> escape >> go
-        '\''                   -> continue singleQuote_
-        '\"'                   -> continue doubleQuote_
-        '`'                    -> continue backquote_
-        '$'                    -> continue bareDollar_
-        '<'                    -> continue angle_ <|> return ()
-        '>'                    -> continue angle_ <|> return ()
-        c | c `elem` metachars -> return ()
-          | otherwise          -> moveChar >> go
+    newlineEscape = mempty <$ string "\\\n"
 
-    continue l = moveChar >> l >> go
+    escape = B.char '\\' <+> B.anyChar
 
-    escape = takeChar >> peekChar >>= \case
-        Just '\n' -> void takeChar
-        _         -> addChar '\\' >> moveChar
+    singleQuote = span '\'' '\'' B.anyChar
 
-    angle_ = peekChar >>= \case
-        Just '(' -> moveChar >> paren_
-        _        -> empty
+    doubleQuote = span '\"' '\"' $ escape
+                               <|> backquote
+                               <|> dollar
+                               <|> B.anyChar
 
-    singleQuote_ = span '\'' $ \_ -> return ()
+    ansiQuote = char '$' *> ansiSpan
 
-    doubleQuote_ = span '\"' $ \case
-        '\\' -> moveChar
-        '`'  -> backquote_
-        '$'  -> dollar_
-        _    -> return ()
+    ansiSpan  = span '\'' '\'' $ try singleEscape
+                             <|> escape
+                             <|> B.anyChar
 
-    ansiQuote_ = span '\'' $ \case
-        '\\' -> moveChar
-        _    -> return ()
+    -- backslash escape a single quote outside the rest of the string
+    singleEscape = B.fromString "'\\''" <$ string "\\'"
 
-    backquote_ = span '`' $ \case
-        '\\' -> moveChar
-        '$'  -> bareDollar_
-        _    -> return ()
+    localeQuote = char '$' *> doubleQuote
 
-    parameter_ = span '}' $ \case
-        '\\' -> moveChar
-        '\'' -> singleQuote_
-        '\"' -> doubleQuote_
-        '`'  -> backquote_
-        '$'  -> dollar_
-        _    -> return ()
+    angle = B.satisfy (`elem` "<>") <+> paren
 
-    bareDollar_ = peekChar >>= \case
-        Just '\'' -> moveChar >> ansiQuote_
-        Just '\"' -> moveChar >> doubleQuote_
-        _         -> dollar_
+    dollar = char '$' *> (parameter <|> try arith_ <|> paren)
 
-    dollar_ = peekChar >>= \case
-        Just '('  -> moveChar >> dollarParen_
-        Just '{'  -> moveChar >> parameter_
-        _         -> return ()
+    backquote = span '`' '`' $ escape
+                           <|> dollar
+                           <|> B.anyChar
 
-    dollarParen_ = peekChar >>= \case
-        Just '(' -> moveChar >> arith_
-        _        -> paren_
+    parameter = span '{' '}' $ escape
+                           <|> singleQuote
+                           <|> doubleQuote
+                           <|> backquote
+                           <|> dollar
+                           <|> B.anyChar
 
     -- command substitutions, subshells, function parentheses, etc.
-    paren_ = span ')' $ \case
-        '\\' -> moveChar
-        '\'' -> singleQuote_
-        '\"' -> doubleQuote_
-        '`'  -> backquote_
-        '('  -> paren_
-        '$'  -> bareDollar_
-        '#'  -> moveWhile (/= '\n')  -- comment
-        _    -> return ()
+    paren = span '(' ')' $ escape
+                       <|> singleQuote
+                       <|> doubleQuote
+                       <|> backquote
+                       <|> paren
+                       <|> dollar
+                       <|> comment
+                       <|> B.anyChar
 
-    arith_ = arith <* satisfy (== ')') <* satisfy (== ')')
+    comment = B.char '#' <+> B.takeWhile (/= '\n')
+
+    arith_ = B.string "((" <+> arith <+> B.string "))"
 
 -------------------------------------------------------------------------------
 -- Bash token lexers
@@ -437,7 +318,7 @@ lexNormal = normalWord
   where
     normalWord = do
         w <- nonempty word
-        peekChar <&> \case
+        optional (lookAhead anyChar) <&> \case
             Just c | isAngle c && all isDigit w -> TNumber (read w)
             _                                   -> TWord w
 
@@ -449,36 +330,34 @@ lexAssign = TAssign <$> assign
   where
     assign = Assign <$> lhs <*> assignOp <*> rhs
 
-    lhs = withBuffer $ do
-        satisfy isNameStart
-        _ <- many (satisfy isNameLetter)
-        peekChar >>= \case
-            Just '[' -> moveWhile (/= ']') >> satisfy (== ']')
-            _        -> return ()
-      where
-        isNameStart  c = isAlpha c || c == '_'
-        isNameLetter c = isNameStart c || isDigit c
+    lhs = B.toString <$> (name <+> subscript)
+
+    name = B.satisfy isNameStart
+       <+> B.takeWhile isNameLetter
+
+    isNameStart  c = isAlpha c || c == '_'
+    isNameLetter c = isNameStart c || isDigit c
+
+    subscript = B.char '[' <+> B.takeWhile (/= ']') <+> B.char ']'
+            <|> pure mempty
 
     assignOp = operator ["=", "+="] <&> \case
         "="  -> Equals
         "+=" -> PlusEquals
         _    -> error "Bash.Lexer.assign: unknown operator"
 
-    rhs = peekChar >>= \case
-        Just '(' -> takeChar >> Array <$> arrayElems
-        _        -> Value <$> word
+    rhs = Array <$  char '(' <*> arrayElems
+      <|> Value <$> word
 
-    arrayElems = skipArraySpace >> peekChar >>= \case
-        Just ')' -> [] <$ takeChar
-        _        -> (:) <$> nonempty word <*> arrayElems
+    arrayElems  = skipArraySpace >> arrayElems_
+    arrayElems_ = []  <$  char ')'
+              <|> (:) <$> nonempty word <*> arrayElems
 
-    skipArraySpace = skipSpace >> peekChar >>= \case
-        Just '\n' -> takeChar >> skipArraySpace
-        _         -> return ()
+    skipArraySpace = skipSpace >> (char '\n' *> skipArraySpace <|> return ())
 
 -- | Lex a token in arithmetic mode.
 lexArith :: Lexer Token
-lexArith = TArith <$> withBuffer arith
+lexArith = TArith . B.toString <$> arith
 
 -------------------------------------------------------------------------------
 -- Parsec token stream
@@ -489,7 +368,7 @@ lexArith = TArith <$> withBuffer arith
 -- but switching token modes can be expensive.
 data Tokens = Tokens
     { -- | The current lexer state.
-      lexerState :: LexerState
+      tokenState :: ParsecState
       -- | The current token mode.
     , tokenMode  :: TokenMode
       -- | Get the next token, if possible.
@@ -500,9 +379,9 @@ instance Monad m => Stream Tokens m Token where
     uncons = return . nextToken
 
 -- | Construct a token stream from a lexer state.
-toTokens :: LexerState -> TokenMode -> Tokens
+toTokens :: ParsecState -> TokenMode -> Tokens
 toTokens s mode = Tokens
-    { lexerState = s'
+    { tokenState = s'
     , tokenMode  = mode
     , nextToken  = next
     }
@@ -514,18 +393,24 @@ toTokens s mode = Tokens
 
 -- | Construct a named token stream.
 makeTokens :: TokenMode -> SourceName -> String -> Tokens
-makeTokens mode name s = toTokens (makeLexerState $ S.source name s) mode
+makeTokens mode name s = toTokens initialParsecState mode
+  where
+    initialParsecState = State
+        { stateInput = s
+        , statePos   = initialPos name
+        , stateUser  = initialState
+        }
 
 -- | Get the input source position.
 sourcePos :: Tokens -> SourcePos
-sourcePos = S.sourcePos . source . lexerState
+sourcePos = statePos . tokenState
 
 -- | Set the lexer token mode.
 setTokenMode :: TokenMode -> Tokens -> Tokens
-setTokenMode mode i = toTokens (lexerState i) mode
+setTokenMode mode i = toTokens (tokenState i) mode
 
 -- | Notify the lexer that a heredoc delimited by a word is needed.
 queueHeredoc :: String -> Tokens -> Tokens
-queueHeredoc h i = toTokens (addHeredoc $ lexerState i) (tokenMode i)
+queueHeredoc h i = toTokens (queue $ tokenState i) (tokenMode i)
   where
-    addHeredoc s = s { heredocs = h : heredocs s }
+    queue s = s { stateUser = addHeredoc h (stateUser s) }
