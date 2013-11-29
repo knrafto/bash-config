@@ -7,31 +7,30 @@ module Bash.Config.Expand
     ) where
 
 import           Control.Applicative
-import           Data.Monoid
+import           Text.Parsec.Char
 import           Text.Parsec.Prim    (parse)
 
-import           Bash.Config.Builder
+import qualified Bash.Config.Builder as B
 import           Bash.Config.Types
 
 -- | Unquote a string.
 unquote :: String -> String
 unquote s = case parse bare "" s of
     Left  e -> error (show e)
-    Right b -> toString b
+    Right b -> B.toString b
   where
-    bare = char '\'' *> single
-       <|> char '\"' *> double
-       <|> char '\\' *> escape
-       <|> anyChar <+> bare
-       <|> pure mempty
+    bare = B.many $ single
+                <|> double
+                <|> escape
+                <|> B.anyChar
 
-    single = mconcat <$> many singleChar <* char '\'' <+> bare
-    double = mconcat <$> many doubleChar <* char '\"' <+> bare
+    single = char '\'' *> B.many singleChar <* char '\''
+    double = char '\"' *> B.many doubleChar <* char '\"'
 
-    singleChar = satisfy (/= '\'')
-    doubleChar = char '\\' *> anyChar <|> satisfy (/= '\"')
+    singleChar = B.satisfy (/= '\'')
+    doubleChar = escape <|> B.satisfy (/= '\"')
 
-    escape = anyChar <+> bare <|> pure mempty
+    escape = char '\\' *> B.anyChar
 
 expandWord :: String -> Bash String
 expandWord = return  -- TODO
