@@ -40,6 +40,7 @@ library
     Bash.Config
 
   other-modules:
+    Bash.Config.Builder
     Bash.Config.Cond
     Bash.Config.Expand
     Bash.Config.Eval
