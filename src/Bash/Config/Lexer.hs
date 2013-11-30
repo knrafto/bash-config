@@ -1,15 +1,5 @@
-{-# LANGUAGE
-    BangPatterns
-  , DeriveFunctor
-  , FlexibleInstances
-  , LambdaCase
-  , MultiParamTypeClasses
-  #-}
+{-# LANGUAGE FlexibleInstances, LambdaCase, MultiParamTypeClasses #-}
 -- | The Bash lexer.
---
--- The lexer uses a custom Lexer monad to parse individual tokens. The lexer
--- supports one-character lookahead and arbitrary backtracking when needed.
--- The parser communicates with the lexer by specifying lexical analysis modes.
 module Bash.Config.Lexer
     ( -- * Tokens
       Token(..)
@@ -43,7 +33,7 @@ import           Text.Parsec.Char          hiding (newline)
 import           Text.Parsec.Prim          hiding ((<|>), many)
 import           Text.Parsec.Pos
 
-import           Bash.Config.Builder       (Builder, (<+>))
+import           Bash.Config.Builder       (Builder, (<+>), (+>))
 import qualified Bash.Config.Builder       as B
 import           Bash.Config.Types
 
@@ -175,26 +165,24 @@ runLexer m s = case reply of
 nonempty :: MonadPlus m => m [a] -> m [a]
 nonempty m = m >>= \xs -> if null xs then mzero else return xs
 
--- | Parse a span between two characters.
+-- | @span start end p@ lexes the character @start@, then repeatedly parses
+-- characters or @escape@ sequences until character @end@ appears.
 span :: Char -> Char -> Lexer Builder -> Lexer Builder
-span start end p = B.char start <+> rest
+span start end escape = B.char start <+> rest
   where
-    rest = B.char end <|> p <+> rest
+    rest = B.char end <|> (escape <|> B.anyChar) <+> rest
 
 -- | Take a line of characters from the source, stripping the trailing
 -- newline (if any). Fails if there is no input left.
 takeLine :: Lexer String
-takeLine = B.toString
-       <$  lookAhead anyChar
-       <*> B.many (B.satisfy (/= '\n'))
-       <*  optional (char '\n')
+takeLine = B.toString <$ lookAhead anyChar
+       <*> B.takeWhile (/= '\n') <* optional (char '\n')
 
 -- | Skip spaces, tabs, and comments.
 skipSpace :: Lexer ()
-skipSpace = () <$ many spaceChar <* optional comment
+skipSpace = () <$ skipMany spaceChar <* optional comment
   where
-    spaceChar = try escape <|> satisfy (`elem` " \t")
-    escape    = char '\\' *> char '\n'
+    spaceChar = '\n' <$ try (string "\\\n") <|> satisfy (`elem` " \t")
     comment   = char '#' *> skipMany (satisfy (/= '\n'))
 
 -- | Lex a newline, and skip any following heredocs.
@@ -216,9 +204,9 @@ skipHeredoc h = go
 
 -- | Parse an arithmetic expression.
 arith :: Lexer Builder
-arith = B.many (parens <|> B.satisfy (/= ')'))
+arith = B.many $ parens <|> B.satisfy (/= ')')
   where
-    parens = span '(' ')' (parens <|> B.anyChar)
+    parens = span '(' ')' parens
 
 -- | Lex the longest available operator from a list.
 operator :: [String] -> Lexer String
@@ -231,74 +219,54 @@ operator = fmap B.toString . go
 
     continue ops = do
         c <- anyChar
-        pure (B.fromChar c) <+> go (prefix c ops)
+        B.fromChar c +> go (prefix c ops)
 
     prefix c = map tail . filter (\x -> not (null x) && head x == c)
 
 -- | Lex a word, obeying and preserving quoting rules.
 word :: Lexer String
-word = B.toString <$> go
+word = B.toString <$> B.many naked
   where
-    go = B.many $ try newlineEscape
-              <|> escape
-              <|> singleQuote
-              <|> doubleQuote
-              <|> try ansiQuote
-              <|> try localeQuote
-              <|> dollar
-              <|> try angle
-              <|> B.satisfy (`notElem` metachars)
+    naked        = mempty <$ try (string "\\\n")
+               <|> escape
+               <|> singleQuote
+               <|> doubleQuote
+               <|> try specialQuote
+               <|> dollar
+               <|> try angle
+               <|> B.satisfy (`notElem` metachars)
 
-    newlineEscape = mempty <$ string "\\\n"
-
-    escape = B.char '\\' <+> B.anyChar
-
-    singleQuote = span '\'' '\'' B.anyChar
-
-    doubleQuote = span '\"' '\"' $ escape
-                               <|> backquote
-                               <|> dollar
-                               <|> B.anyChar
-
-    ansiQuote = char '$' *> ansiSpan
-
-    ansiSpan  = span '\'' '\'' $ try singleEscape
-                             <|> escape
-                             <|> B.anyChar
+    escape       = B.char '\\' <+> B.anyChar
 
     -- backslash escape a single quote outside the rest of the string
     singleEscape = B.fromString "'\\''" <$ string "\\'"
 
-    localeQuote = char '$' *> doubleQuote
+    specialQuote = char '$' *> (ansiQuote <|> doubleQuote)
+    dollar       = B.char '$' <+> (parameter <|> try arithSubst <|> paren)
+    angle        = B.satisfy (`elem` "<>") <+> paren
 
-    angle = B.satisfy (`elem` "<>") <+> paren
+    singleQuote  = span '\'' '\'' empty
+    doubleQuote  = span '\"' '\"' (escape <|> backquote <|> dollar)
+    ansiQuote    = span '\'' '\'' (try singleEscape <|> escape)
+    backquote    = span '`'  '`'  escape
 
-    dollar = char '$' *> (parameter <|> try arith_ <|> paren)
-
-    backquote = span '`' '`' $ escape
-                           <|> dollar
-                           <|> B.anyChar
-
-    parameter = span '{' '}' $ escape
-                           <|> singleQuote
-                           <|> doubleQuote
-                           <|> backquote
-                           <|> dollar
-                           <|> B.anyChar
+    parameter    = span '{' '}' $ escape
+                              <|> singleQuote
+                              <|> doubleQuote
+                              <|> backquote
+                              <|> dollar
 
     -- command substitutions, subshells, function parentheses, etc.
-    paren = span '(' ')' $ escape
-                       <|> singleQuote
-                       <|> doubleQuote
-                       <|> backquote
-                       <|> paren
-                       <|> dollar
-                       <|> comment
-                       <|> B.anyChar
+    paren        = span '(' ')' $ escape
+                              <|> singleQuote
+                              <|> doubleQuote
+                              <|> backquote
+                              <|> paren
+                              <|> dollar
+                              <|> comment
 
-    comment = B.char '#' <+> B.takeWhile (/= '\n')
-
-    arith_ = B.string "((" <+> arith <+> B.string "))"
+    arithSubst   = B.string "((" <+> arith <+> B.string "))"
+    comment      = B.char '#' <+> B.takeWhile (/= '\n')
 
 -------------------------------------------------------------------------------
 -- Bash token lexers
@@ -332,8 +300,7 @@ lexAssign = TAssign <$> assign
 
     lhs = B.toString <$> (name <+> subscript)
 
-    name = B.satisfy isNameStart
-       <+> B.takeWhile isNameLetter
+    name = B.satisfy isNameStart <+> B.takeWhile isNameLetter
 
     isNameStart  c = isAlpha c || c == '_'
     isNameLetter c = isNameStart c || isDigit c
@@ -346,12 +313,10 @@ lexAssign = TAssign <$> assign
         "+=" -> PlusEquals
         _    -> error "Bash.Lexer.assign: unknown operator"
 
-    rhs = Array <$  char '(' <*> arrayElems
+    rhs = Array <$  char '(' <*> arrayElems <* char ')'
       <|> Value <$> word
 
-    arrayElems  = skipArraySpace >> arrayElems_
-    arrayElems_ = []  <$  char ')'
-              <|> (:) <$> nonempty word <*> arrayElems
+    arrayElems = skipArraySpace >> many (nonempty word <* skipArraySpace)
 
     skipArraySpace = skipSpace >> (char '\n' *> skipArraySpace <|> return ())
 

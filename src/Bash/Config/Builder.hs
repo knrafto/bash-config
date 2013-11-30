@@ -8,6 +8,8 @@ module Bash.Config.Builder
     , toString
       -- * Monoidal parsing
     , (<+>)
+    , (<+)
+    , (+>)
     , many
     , char
     , anyChar
@@ -20,6 +22,7 @@ import           Prelude             hiding (span, takeWhile)
 
 import           Control.Applicative hiding (many)
 import           Data.Monoid
+import qualified Data.String         as S
 import qualified Text.Parsec.Char    as P
 import           Text.Parsec.Prim    hiding ((<|>), many)
 import           Text.Parsec.String  ()
@@ -30,6 +33,9 @@ newtype Builder = Builder { runBuilder :: String -> String }
 instance Monoid Builder where
     mempty        = Builder id
     a `mappend` b = Builder (runBuilder a . runBuilder b)
+
+instance S.IsString Builder where
+    fromString = fromString
 
 -- | Construct a 'Builder' from a 'Char'.
 fromChar :: Char -> Builder
@@ -43,11 +49,19 @@ fromString s = Builder (s ++)
 toString :: Builder -> String
 toString b = runBuilder b ""
 
-infixl 4 <+>
+infixl 4 <+>, <+, +>
 
 -- | Sequence two functions and combine their results.
 (<+>) :: (Applicative f, Monoid a) => f a -> f a -> f a
 (<+>) = liftA2 mappend
+
+-- | Combine an effectful result with a pure result.
+(+>) :: (Applicative f, Monoid a) => a -> f a -> f a
+a +> f = pure a <+> f
+
+-- | Combine a pure result with an effectful result.
+(<+) :: (Applicative f, Monoid a) => f a -> a -> f a
+f <+ a = f <+> pure a
 
 -- | Sequence a function repeatedly.
 many :: (Alternative f, Monoid a) => f a -> f a

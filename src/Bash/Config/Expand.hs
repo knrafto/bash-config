@@ -15,22 +15,19 @@ import           Bash.Config.Types
 
 -- | Unquote a string.
 unquote :: String -> String
-unquote s = case parse bare "" s of
+unquote s = case parse naked "" s of
     Left  e -> error (show e)
     Right b -> B.toString b
   where
-    bare = B.many $ single
-                <|> double
-                <|> escape
-                <|> B.anyChar
+    naked      = B.many $ single
+                      <|> double
+                      <|> escape
+                      <|> B.anyChar
 
-    single = char '\'' *> B.many singleChar <* char '\''
-    double = char '\"' *> B.many doubleChar <* char '\"'
-
-    singleChar = B.satisfy (/= '\'')
+    escape     = char '\\' *> B.anyChar
+    single     = char '\'' *> B.takeWhile (/= '\'') <* char '\''
+    double     = char '\"' *> B.many doubleChar <* char '\"'
     doubleChar = escape <|> B.satisfy (/= '\"')
-
-    escape = char '\\' *> B.anyChar
 
 expandWord :: String -> Bash String
 expandWord = return  -- TODO
