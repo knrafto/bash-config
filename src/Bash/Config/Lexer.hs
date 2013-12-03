@@ -165,13 +165,6 @@ runLexer m s = case reply of
 nonempty :: MonadPlus m => m [a] -> m [a]
 nonempty m = m >>= \xs -> if null xs then mzero else return xs
 
--- | @span start end p@ lexes the character @start@, then repeatedly parses
--- characters or @escape@ sequences until character @end@ appears.
-span :: Char -> Char -> Lexer Builder -> Lexer Builder
-span start end escape = B.char start <+> rest
-  where
-    rest = B.char end <|> (escape <|> B.anyChar) <+> rest
-
 -- | Take a line of characters from the source, stripping the trailing
 -- newline (if any). Fails if there is no input left.
 takeLine :: Lexer String
@@ -206,7 +199,7 @@ skipHeredoc h = go
 arith :: Lexer Builder
 arith = B.many $ parens <|> B.satisfy (/= ')')
   where
-    parens = span '(' ')' parens
+    parens = B.span '(' ')' parens
 
 -- | Lex the longest available operator from a list.
 operator :: [String] -> Lexer String
@@ -245,25 +238,25 @@ word = B.toString <$> B.many naked
     dollar       = B.char '$' <+> (parameter <|> try arithSubst <|> paren)
     angle        = B.satisfy (`elem` "<>") <+> paren
 
-    singleQuote  = span '\'' '\'' empty
-    doubleQuote  = span '\"' '\"' (escape <|> backquote <|> dollar)
-    ansiQuote    = span '\'' '\'' (try singleEscape <|> escape)
-    backquote    = span '`'  '`'  escape
+    singleQuote  = B.span '\'' '\'' empty
+    doubleQuote  = B.span '\"' '\"' (escape <|> backquote <|> dollar)
+    ansiQuote    = B.span '\'' '\'' (try singleEscape <|> escape)
+    backquote    = B.span '`'  '`'  escape
 
-    parameter    = span '{' '}' $ escape
-                              <|> singleQuote
-                              <|> doubleQuote
-                              <|> backquote
-                              <|> dollar
+    parameter    = B.span '{' '}' $ escape
+                                <|> singleQuote
+                                <|> doubleQuote
+                                <|> backquote
+                                <|> dollar
 
     -- command substitutions, subshells, function parentheses, etc.
-    paren        = span '(' ')' $ escape
-                              <|> singleQuote
-                              <|> doubleQuote
-                              <|> backquote
-                              <|> paren
-                              <|> dollar
-                              <|> comment
+    paren        = B.span '(' ')' $ escape
+                                <|> singleQuote
+                                <|> doubleQuote
+                                <|> backquote
+                                <|> paren
+                                <|> dollar
+                                <|> comment
 
     arithSubst   = B.string "((" <+> arith <+> B.string "))"
     comment      = B.char '#' <+> B.takeWhile (/= '\n')

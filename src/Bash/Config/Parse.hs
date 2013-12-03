@@ -238,7 +238,7 @@ caseCommand = Case <$ word "case"
                  <|> [f Break] <$ newlineList <* word "esac"
 
     pattern = optional (operator "(")
-           *> sepBy anyWord (operator "|")
+           *> anyWord `sepBy` operator "|"
            <* operator ")"
 
     clauseCommand = compoundList

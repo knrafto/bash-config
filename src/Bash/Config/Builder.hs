@@ -16,6 +16,8 @@ module Bash.Config.Builder
     , satisfy
     , string
     , takeWhile
+    , matchedPair
+    , span
     ) where
 
 import           Prelude             hiding (span, takeWhile)
@@ -57,11 +59,11 @@ infixl 4 <+>, <+, +>
 
 -- | Combine an effectful result with a pure result.
 (+>) :: (Applicative f, Monoid a) => a -> f a -> f a
-a +> f = pure a <+> f
+a +> f = (a <>) <$> f
 
 -- | Combine a pure result with an effectful result.
 (<+) :: (Applicative f, Monoid a) => f a -> a -> f a
-f <+ a = f <+> pure a
+f <+ a = (<> a) <$> f
 
 -- | Sequence a function repeatedly.
 many :: (Alternative f, Monoid a) => f a -> f a
@@ -88,3 +90,26 @@ string s = fromString s <$ P.string s
 -- | Parse characters while the predicate is satisfied.
 takeWhile :: Stream s m Char => (Char -> Bool) -> ParsecT s u m Builder
 takeWhile = many . satisfy
+
+-- | @matchedPair start end escape@ parses the character @start@, then
+-- repeatedly parses characters or @escape@ sequences until character
+-- @end@ appears. Returns the contents of the matched pair.
+matchedPair
+    :: Stream s m Char
+    => Char
+    -> Char
+    -> ParsecT s u m Builder
+    -> ParsecT s u m Builder
+matchedPair start end escape = P.char start *> many inner <* P.char end
+  where
+    inner = escape <|> satisfy (/= end)
+
+-- | Parses a matched pair, including the outer characters.
+span
+    :: Stream s m Char
+    => Char
+    -> Char
+    -> ParsecT s u m Builder
+    -> ParsecT s u m Builder
+span start end escape =
+    fromChar start +> matchedPair start end escape <+ fromChar end
