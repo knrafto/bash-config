@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 -- | Shell expansions.
 module Bash.Config.Expand
     ( unquote
@@ -47,11 +46,10 @@ containsUnquoted w cs = parseUnsafe "containsUnquoted" contains w
 
 -- | Get the value of the IFS variable as a string.
 ifsValue :: Bash String
-ifsValue = ifs <|> pure " \t\n"
+ifsValue = toString <$> value "IFS" <|> pure " \t\n"
   where
-    ifs = value "IFS" >>= \case
-        Value v -> return v
-        _       -> empty
+    toString (Value v) = v
+    toString (Array _) = ""
 
 -- | Unquote a string.
 unquote :: String -> String
