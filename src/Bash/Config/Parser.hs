@@ -4,7 +4,7 @@
 -- The parser is built using Parsec over a custom token stream for
 -- context-sensitive lexical analysis. The parser communicates with the
 -- lexer by specifying lexical analysis modes.
-module Bash.Config.Parse
+module Bash.Config.Parser
     ( parse
     ) where
 

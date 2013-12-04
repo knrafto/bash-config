@@ -45,7 +45,7 @@ library
     Bash.Config.Expand
     Bash.Config.Eval
     Bash.Config.Lexer
-    Bash.Config.Parse
+    Bash.Config.Parser
     Bash.Config.Types
 
   build-depends:

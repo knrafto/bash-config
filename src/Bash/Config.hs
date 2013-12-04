@@ -14,5 +14,5 @@ module Bash.Config
     ) where
 
 import Bash.Config.Eval
-import Bash.Config.Parse
+import Bash.Config.Parser
 import Bash.Config.Types
