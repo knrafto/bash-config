@@ -150,6 +150,7 @@ filenameExpand s
     | s `containsUnquoted` "*?[" = empty
     | otherwise                  = return s
 
+-- | Expand a single word.
 expandWord :: String -> Bash String
 expandWord = concatKliesli
     [ tildeExpand
@@ -158,6 +159,7 @@ expandWord = concatKliesli
     , return . unquote
     ]
 
+-- | Expand a list of words.
 expandWordList :: [String] -> Bash [String]
 expandWordList = concatKliesli
     [ return . concatMap braceExpand
@@ -170,5 +172,7 @@ expandWordList = concatKliesli
     , return . map unquote
     ]
 
+-- | Expand a 'Value'.
 expandValue :: Value -> Bash Value
-expandValue = return  -- TODO
+expandValue (Value v)  = Value <$> expandWord v
+expandValue (Array vs) = Array <$> expandWordList vs
