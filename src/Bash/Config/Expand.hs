@@ -14,7 +14,7 @@ import           Data.Functor.Identity
 import           Data.Monoid
 import           Text.Parsec.Char
 import           Text.Parsec.Prim       hiding ((<|>))
-import           Text.Parsec.Combinator
+import           Text.Parsec.Combinator hiding (optional)
 import           Text.Parsec.String
 
 import           Bash.Config.Builder    (Builder, (<+>))
@@ -37,13 +37,6 @@ parseUnsafeT name p = liftM fromRight . runParserT p () ""
 parseUnsafe :: String -> Parser a -> String -> a
 parseUnsafe name p = runIdentity . parseUnsafeT name p
 
--- | Return whether the given characters appear unquoted in a wordPart.
-containsUnquoted :: String -> String -> Bool
-containsUnquoted w cs = parseUnsafe "containsUnquoted" contains w
-  where
-    contains = not <$ wordPart cs <*> isEof
-    isEof    = True <$ eof <|> pure False
-
 -- | Get the value of the IFS variable as a string.
 ifsValue :: Bash String
 ifsValue = toString <$> value "IFS" <|> pure " \t\n"
@@ -64,7 +57,7 @@ unquote = parseUnsafe "unquote" (B.toString <$> B.many naked)
     single = B.matchedPair '\'' '\'' empty
     double = B.matchedPair '\"' '\"' escape
 
--- | Parse a wordPart, delimited by an unquoted occurence of one of the given
+-- | Parse a word, delimited by an unquoted occurence of one of the given
 -- characters.
 wordPart :: Monad m => String -> ParsecT String u m Builder
 wordPart delims = B.many $ escape
@@ -95,7 +88,7 @@ parameterSubst = char '{' *> name <* char '}'
         asString (Array [])    = ""
         asString (Array (v:_)) = v
 
--- | Brace expand a wordPart.
+-- | Brace expand a word.
 braceExpand :: String -> [String]
 braceExpand = parseUnsafe "braceExpand" (map B.toString <$> go False)
   where
@@ -119,22 +112,17 @@ tildeExpand :: String -> Bash String
 tildeExpand ('~':_) = empty
 tildeExpand s       = return s
 
--- | Fail if a process substitution should be performed.
-processSubst :: String -> Bash String
-processSubst s
-    | s `containsUnquoted` "<>" = empty
-    | otherwise                 = return s
-
--- | Perform parameter expansion, arithmetic expansion, and command
--- substitution.
-dollarExpand :: String -> Bash String
-dollarExpand = parseUnsafeT "dollarExpand" (B.toString <$> go)
+-- | Perform parameter expansion, arithmetic expansion, command
+-- substitution, and process substitution.
+expand :: String -> Bash String
+expand = parseUnsafeT "expand" (B.toString <$> go)
   where
-    go     = B.many (try dollar <|> wordPart "$")
+    go     = B.many (angle <|> try dollar <|> wordPart "$")
+    angle  = oneOf "<>" *> lift empty
     dollar = char '$' *> (paren <|> parameterSubst)
     paren  = char '(' *> lift empty
 
--- | Split a wordPart into multiple split.
+-- | Split a word into multiple split.
 splitWord :: String -> Bash [String]
 splitWord s = do
     ifs <- ifsValue
@@ -144,16 +132,16 @@ splitWord s = do
 
 -- | Fail if a filename expansion should be performed.
 filenameExpand :: String -> Bash String
-filenameExpand s
-    | s `containsUnquoted` "*?[" = empty
-    | otherwise                  = return s
+filenameExpand s = parseUnsafeT "filenameExpand" (s <$ word) s
+  where
+    delims = "*?["
+    word   = wordPart delims *> optional (oneOf delims *> lift empty)
 
 -- | Expand a single word.
 expandWord :: String -> Bash String
 expandWord = concatKliesli
     [ tildeExpand
-    , processSubst
-    , dollarExpand
+    , expand
     , return . unquote
     ]
 
@@ -162,8 +150,7 @@ expandWordList :: [String] -> Bash [String]
 expandWordList = concatKliesli
     [ return . concatMap braceExpand
     , mapM tildeExpand
-    , mapM processSubst
-    , mapM dollarExpand
+    , mapM expand
     , return . filter (not . null)
     , fmap concat . mapM splitWord
     , mapM filenameExpand
