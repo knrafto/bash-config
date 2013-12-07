@@ -375,4 +375,4 @@ command = baseCommand <* redirList
 
 -- | Parse an entire script (e.g. a file) as a list of commands.
 script :: Parser Script
-script = Script <$> compoundList <* eof
+script = Script <$ newlineList <*> option (List []) compoundList <* eof
