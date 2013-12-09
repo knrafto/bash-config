@@ -69,4 +69,6 @@ test-suite tests
     containers,
     directory,
     filepath,
-    tasty
+    parsec,
+    tasty,
+    transformers
