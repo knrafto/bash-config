@@ -13,7 +13,7 @@ import           Data.Char
 import           Data.Functor.Identity
 import           Data.Monoid
 import           Text.Parsec.Char
-import           Text.Parsec.Prim       hiding ((<|>))
+import           Text.Parsec.Prim       hiding ((<|>), many)
 import           Text.Parsec.Combinator hiding (optional)
 import           Text.Parsec.String
 
@@ -57,19 +57,27 @@ unquote = parseUnsafe "unquote" (B.toString <$> B.many naked)
     single = B.matchedPair '\'' '\'' empty
     double = B.matchedPair '\"' '\"' escape
 
--- | Parse a word, delimited by an unquoted occurence of one of the given
--- characters.
+-- | Parse part of a word.
 wordPart :: Monad m => String -> ParsecT String u m Builder
-wordPart delims = B.many $ escape
-                       <|> single
-                       <|> double
-                       <|> B.satisfy (`notElem` delims)
+wordPart delims = escape
+              <|> single
+              <|> double
+              <|> B.satisfy (`notElem` delims)
   where
     escape = B.char '\\' <+> (B.anyChar <|> return mempty)
     single = B.span '\'' '\'' empty
     double = B.span '\"' '\"' escape
 
--- | Parse and perform a parameter substitution.
+-- | Parse a word, delimited by an unquoted occurence of one of the given
+-- characters.
+word :: Monad m => String -> ParsecT String u m Builder
+word = B.many . wordPart
+
+-- | Parse a nonempty word, delimited by an unquoted occurence of one of the given
+-- characters.
+word1 :: Monad m => String -> ParsecT String u m Builder
+word1 = B.many1 . wordPart
+
 parameterSubst :: ParsecT String () Bash Builder
 parameterSubst = char '{' *> name <* char '}'
              <|> digit *> lift empty
@@ -93,10 +101,10 @@ braceExpand :: String -> [String]
 braceExpand = parseUnsafe "braceExpand" (map B.toString <$> go False)
   where
     go inner = try (brace inner)
-           <|> return <$> wordPart (if inner then ",}" else "")
+           <|> return <$> word (if inner then ",}" else "")
 
     brace inner = do
-        a <- wordPart "{"
+        a <- word "{"
         _ <- char '{'
         b <- concatBrace <$> go True `sepBy` char ','
         _ <- char '}'
@@ -117,7 +125,10 @@ tildeExpand s       = return s
 expand :: String -> Bash String
 expand = parseUnsafeT "expand" (B.toString <$> go)
   where
-    go     = B.many (angle <|> try dollar <|> wordPart "$")
+    go     = B.many $ angle
+                  <|> dollar
+                  <|> word1 "$<>"
+
     angle  = oneOf "<>" *> lift empty
     dollar = char '$' *> (paren <|> parameterSubst)
     paren  = char '(' *> lift empty
@@ -128,14 +139,15 @@ splitWord s = do
     ifs <- ifsValue
     return $ parseUnsafe "splitWord" (map B.toString <$> parts ifs) s
   where
-    parts ifs = wordPart ifs `sepBy` many1 (satisfy (`elem` ifs))
+    parts ifs = sep ifs *> many (word1 ifs <* sep ifs)
+    sep   ifs = skipMany (oneOf ifs)
 
 -- | Fail if a filename expansion should be performed.
 filenameExpand :: String -> Bash String
-filenameExpand s = parseUnsafeT "filenameExpand" (s <$ word) s
+filenameExpand s = parseUnsafeT "filenameExpand" (s <$ part) s
   where
     delims = "*?["
-    word   = wordPart delims *> optional (oneOf delims *> lift empty)
+    part   = word delims *> optional (oneOf delims *> lift empty)
 
 -- | Expand a single word.
 expandWord :: String -> Bash String

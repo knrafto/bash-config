@@ -11,6 +11,7 @@ module Bash.Config.Builder
     , (<+)
     , (+>)
     , many
+    , many1
     , char
     , anyChar
     , satisfy
@@ -70,6 +71,10 @@ many :: (Alternative f, Monoid a) => f a -> f a
 many p = go
   where
     go = p <+> go <|> pure mempty
+
+-- | Sequence a function one or more times.
+many1 :: (Alternative f, Monoid a) => f a -> f a
+many1 p = p <+> many p
 
 -- | Parse a given character.
 char :: Stream s m Char => Char -> ParsecT s u m Builder
