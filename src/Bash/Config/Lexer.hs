@@ -235,7 +235,13 @@ word = B.toString <$> B.many naked
     singleEscape = B.fromString "'\\''" <$ string "\\'"
 
     specialQuote = char '$' *> (ansiQuote <|> doubleQuote)
-    dollar       = B.char '$' <+> (parameter <|> try arithSubst <|> paren)
+
+    dollar       = B.char '$' <+> dollar_
+    dollar_      = parameter
+               <|> try arithSubst
+               <|> paren
+               <|> return mempty
+
     angle        = B.satisfy (`elem` "<>") <+> paren
 
     singleQuote  = B.span '\'' '\'' empty
