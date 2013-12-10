@@ -1,4 +1,13 @@
-### parameter expansion
+### Brace expansion
+var1=( a{c,b,d}e )
+var2=( {a..e} )
+var3=( {01..10..2} )
+###
+var1=(ace abe ade)
+var2=(a b c d e)
+var3=(01 03 05 07 09)
+
+### Parameter expansion
 var1=foo
 var2=$var1
 ###
