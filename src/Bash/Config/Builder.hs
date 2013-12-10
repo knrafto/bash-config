@@ -15,9 +15,10 @@ module Bash.Config.Builder
     , char
     , anyChar
     , satisfy
+    , oneOf
+    , noneOf
     , string
     , takeWhile
-    , matchedPair
     , span
     ) where
 
@@ -88,6 +89,14 @@ anyChar = fromChar <$> P.anyChar
 satisfy :: Stream s m Char => (Char -> Bool) -> ParsecT s u m Builder
 satisfy p = fromChar <$> P.satisfy p
 
+-- | Parse one of the specified characters.
+oneOf :: Stream s m Char => String -> ParsecT s u m Builder
+oneOf cs = satisfy (`elem` cs)
+
+-- | Parse none of the specified characters.
+noneOf :: Stream s m Char => String -> ParsecT s u m Builder
+noneOf cs = satisfy (`notElem` cs)
+
 -- | Parse a string of characters.
 string :: Stream s m Char => String -> ParsecT s u m Builder
 string s = fromString s <$ P.string s
@@ -96,25 +105,17 @@ string s = fromString s <$ P.string s
 takeWhile :: Stream s m Char => (Char -> Bool) -> ParsecT s u m Builder
 takeWhile = many . satisfy
 
--- | @matchedPair start end escape@ parses the character @start@, then
+-- | @span start end escape@ parses the character @start@, then
 -- repeatedly parses characters or @escape@ sequences until character
--- @end@ appears. Returns the contents of the matched pair.
-matchedPair
-    :: Stream s m Char
-    => Char
-    -> Char
-    -> ParsecT s u m Builder
-    -> ParsecT s u m Builder
-matchedPair start end escape = P.char start *> many inner <* P.char end
-  where
-    inner = escape <|> satisfy (/= end)
-
--- | Parses a matched pair, including the outer characters.
+-- @end@ appears.
 span
     :: Stream s m Char
     => Char
     -> Char
     -> ParsecT s u m Builder
     -> ParsecT s u m Builder
-span start end escape =
-    fromChar start +> matchedPair start end escape <+ fromChar end
+span start end escape = char start <+> go
+  where
+    go = char end
+     <|> escape <+> go
+     <|> anyChar <+> go

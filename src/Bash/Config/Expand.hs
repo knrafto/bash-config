@@ -54,8 +54,8 @@ unquote = parseUnsafe "unquote" (B.toString <$> B.many naked)
          <|> B.anyChar
 
     escape = char '\\' *> (B.anyChar <|> return mempty)
-    single = B.matchedPair '\'' '\'' empty
-    double = B.matchedPair '\"' '\"' escape
+    single = char '\'' *> B.many (B.noneOf "\'") <* char '\''
+    double = char '\"' *> B.many (escape <|> B.noneOf "\"") <* char '\"'
 
 -- | Parse part of a word.
 wordPart :: Monad m => String -> ParsecT String u m Builder
@@ -96,24 +96,80 @@ parameterSubst = char '{' *> name <* char '}'
         asString (Array [])    = ""
         asString (Array (v:_)) = v
 
--- | Brace expand a word.
+-- | Brace expand a word. Expansions are either of the form @{a,b,c}@, or
+-- @{x..y[..incr]}@ where @x@ and @y@ are either integers or single
+-- characters, and @incr@ is an integer increment.
 braceExpand :: String -> [String]
 braceExpand = parseUnsafe "braceExpand" (map B.toString <$> go False)
   where
     go inner = try (brace inner)
-           <|> return <$> word (if inner then ",}" else "")
+           <|> return <$> glob (if inner then ",}" else "")
 
     brace inner = do
-        a <- word "{"
+        a <- glob "{"
         _ <- char '{'
-        b <- concatBrace <$> go True `sepBy` char ','
+        b <- try sequenceExp <|> commaExp
         _ <- char '}'
         c <- go inner
         return (pure a <+> b <+> c)
 
-    concatBrace []   = [B.fromString "{}"]
-    concatBrace [xs] = map (\x -> B.fromChar '{' <> x <> B.fromChar '}') xs
-    concatBrace xss  = concat xss
+    glob = word  -- TODO
+
+    sequenceExp = do
+        a   <- seqPart
+        b   <- sep *> seqPart
+        inc <- optional (sep *> number)
+        map B.fromString <$> (charExp a b inc <|> arithExp a b inc)
+      where
+        seqPart = many1 (noneOf ".{,}")
+        sep     = string ".."
+        number  = seqPart >>= toNumber
+
+    toChar [c] = pure c
+    toChar _   = empty
+
+    toNumber :: Alternative f => String -> f Int
+    toNumber s = case reads s of
+        [(n,"")] -> pure n
+        _        -> empty
+
+    enum :: (Ord a, Enum a) => a -> a -> Maybe Int -> [a]
+    enum a b c = map toEnum [fromEnum a, fromEnum a + inc .. fromEnum b]
+      where
+        inc = case c of
+            Just i              -> i
+            Nothing | a > b     -> -1
+                    | otherwise -> 1
+
+    charExp a b inc = do
+        start <- toChar a
+        end   <- toChar b
+        let chars = enum start end inc
+        return $ map return chars
+
+    arithExp a b inc = do
+        start <- toNumber a
+        end   <- toNumber b
+        let pad     = leadingZero a || leadingZero b
+            width   = max (length a) (length b)
+            numbers = enum start end inc
+        return $ map (if pad then showWidth width else show) numbers
+      where
+        leadingZero ('0':_:_)     = True
+        leadingZero ('-':'0':_:_) = True
+        leadingZero _             = False
+
+        showWidth w n
+            | n < 0     = '-' : showWidth (w - 1) (negate n)
+            | otherwise = replicate (w - length s) '0' ++ s
+          where
+            s = show n
+
+    commaExp = concatBrace <$> go True `sepBy` char ','
+      where
+        concatBrace []   = [B.fromString "{}"]
+        concatBrace [xs] = map (\x -> B.fromChar '{' <> x <> B.fromChar '}') xs
+        concatBrace xss  = concat xss
 
 -- | Fail if a tilde expansion should be performed.
 tildeExpand :: String -> Bash String
