@@ -224,6 +224,7 @@ word = B.toString <$> B.many naked
                <|> escape
                <|> singleQuote
                <|> doubleQuote
+               <|> backquote
                <|> try specialQuote
                <|> dollar
                <|> try angle
