@@ -45,6 +45,8 @@ import           Control.Monad.State.Class
 import           Data.Map                   (Map)
 import qualified Data.Map                   as Map
 
+import           Bash.Config.Word
+
 -------------------------------------------------------------------------------
 -- Environments
 -------------------------------------------------------------------------------
@@ -52,14 +54,14 @@ import qualified Data.Map                   as Map
 -- | The execution environment.
 data Env = Env
     { -- | Environment parameters or variables.
-      parameters :: Map String Value
+      parameters :: Map String (Value String)
       -- | Environment functions.
     , functions  :: Map String Function
     } deriving (Eq)
 
 -- | A Bash value.
-data Value = Value String | Array [String]
-    deriving (Eq, Ord, Read, Show)
+data Value a = Value a | Array [a]
+    deriving (Eq, Ord, Read, Show, Functor)
 
 -- | The empty environment.
 emptyEnv :: Env
@@ -126,15 +128,17 @@ whenClean m = ask >>= \case
 -------------------------------------------------------------------------------
 
 -- | Modify the shell parameter map.
-modifyParameters :: (Map String Value -> Map String Value) -> Bash ()
+modifyParameters
+    :: (Map String (Value String) -> Map String (Value String))
+    -> Bash ()
 modifyParameters f = modify $ \env -> env { parameters = f (parameters env) }
 
 -- | Set a shell parameter. Fails if the current execution status is dirty.
-set :: String -> Value -> Bash ()
+set :: String -> Value String -> Bash ()
 set name a = whenClean $ modifyParameters (Map.insert name a)
 
 -- | Add to a shell parameter.
-augment :: String -> Value -> Bash ()
+augment :: String -> Value String -> Bash ()
 augment name b = do
     a <- value name
     set name (append a b)
@@ -151,7 +155,7 @@ unset :: String -> Bash ()
 unset name = modifyParameters (Map.delete name)
 
 -- | Get the value of a binding, if it is known.
-value :: String -> Bash Value
+value :: String -> Bash (Value String)
 value name = gets (Map.lookup name . parameters) >>= \case
     Nothing -> empty
     Just v  -> return v
@@ -184,7 +188,7 @@ newtype Script = Script List
 data Command
     = Simple SimpleCommand
     | Shell ShellCommand
-    | FunctionDef String Function
+    | FunctionDef Word Function
     | Coproc
     deriving (Eq)
 
@@ -204,11 +208,11 @@ data Pipeline = Pipeline Bool [Command]
     deriving (Eq)
 
 -- | A simple command.
-data SimpleCommand = SimpleCommand [Assign] [String]
+data SimpleCommand = SimpleCommand [Assign] [Word]
     deriving (Eq)
 
 -- | An assignment word.
-data Assign = Assign String AssignOp Value
+data Assign = Assign String AssignOp (Value Word)
     deriving (Eq)
 
 -- | An assignment operator (@=@ or @+=@).
@@ -224,18 +228,18 @@ data ShellCommand
     = Subshell List
     | Group List
     | Arith String
-    | Cond [String]
-    | For String [String] List
+    | Cond [Word]
+    | For Word [Word] List
     | ArithFor String List
-    | Select String [String] List
-    | Case String [CaseClause]
+    | Select Word [Word] List
+    | Case Word [CaseClause]
     | If List List List
     | Until List List
     | While List List
     deriving (Eq)
 
 -- | A single case clause.
-data CaseClause = CaseClause [String] List CaseTerm
+data CaseClause = CaseClause [Word] List CaseTerm
     deriving (Eq)
 
 -- | A case clause terminator. A clause can either 'Break' out of the case

@@ -8,6 +8,7 @@ module Bash.Config.Eval
 import           Control.Applicative
 import           Control.Monad.Reader.Class
 import           Control.Monad.State.Class
+import           Data.Char
 import           Data.Map                   (Map)
 import qualified Data.Map                   as Map
 import           Data.Monoid                hiding (Last)
@@ -15,6 +16,7 @@ import           Data.Monoid                hiding (Last)
 import           Bash.Config.Cond
 import           Bash.Config.Expand
 import           Bash.Config.Types
+import           Bash.Config.Word
 
 -- | Interpret a script or function, returning the resulting environment
 -- variables and function definitions. Any variables or functions missing
@@ -43,6 +45,21 @@ command name args = do
     case Map.lookup name allCommands of
         Nothing -> return Nothing
         Just f  -> f args
+
+-- | Execute a function definition.
+functionDef :: Word -> Function -> Bash ExitStatus
+functionDef w f
+    | isName name = Just True <$ define name f
+                <|> Nothing   <$ undefine name
+    | otherwise   = empty
+  where
+    name           = toString w
+
+    isName (c:cs)  = isNameStart c && all isNameLetter cs
+    isName _       = False
+
+    isNameStart c  = isAlpha c || c == '_'
+    isNameLetter c = isAlphaNum c || c == '_'
 
 -- | Interpreter builtins. These are commands the the interpreter knows
 -- how to execute. Any command not in this map is assumed to be user-defined,
@@ -81,11 +98,10 @@ instance Eval Script where
     eval (Script l) = eval l
 
 instance Eval Command where
-    eval (Simple c) = eval c
-    eval (Shell c)  = eval c
-    eval (FunctionDef name f) = Just True <$ define name f
-                            <|> Nothing   <$ undefine name
-    eval Coproc     = empty
+    eval (Simple c)        = eval c
+    eval (Shell c)         = eval c
+    eval (FunctionDef w f) = functionDef w f
+    eval Coproc            = empty
 
 instance Eval List where
     eval (List cs) = eval cs

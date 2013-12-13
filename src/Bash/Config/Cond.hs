@@ -7,16 +7,15 @@ module Bash.Config.Cond
     ) where
 
 import Control.Applicative
-import Control.Monad
-import Control.Monad.Trans
 import Data.Functor.Identity
-import Data.Traversable
+import Data.Traversable      (sequenceA)
 import Text.Parsec.Prim      hiding ((<|>), token)
 import Text.Parsec.String    ()
 import Text.Parsec.Expr
 
 import Bash.Config.Expand
 import Bash.Config.Types     hiding (AndOr(..))
+import Bash.Config.Word
 
 -------------------------------------------------------------------------------
 -- Conditional Expressions
@@ -62,42 +61,42 @@ eval = \case
 -------------------------------------------------------------------------------
 
 -- | A parser over lists of strings.
-type ParserT = ParsecT [String] ()
+type Parser = ParsecT [String] () Identity
 
 -- | Parse a primitive token satisfying a predicate.
-token :: Monad m => (String -> Bool) -> ParserT m String
+token :: (String -> Bool) -> Parser String
 token p = tokenPrim id (\pos _ _ -> pos) f
   where
     f a | p a       = Just a
         | otherwise = Nothing
 
 -- | Parse any word.
-anyWord :: Monad m => ParserT m String
+anyWord :: Parser String
 anyWord = token (const True)
 
 -- | Parse a given word.
-word :: Monad m => String -> ParserT m String
+word :: String -> Parser String
 word w = token (== w)
 
 -- | Parse a word in a list.
-oneOf :: Monad m => [String] -> ParserT m String
+oneOf :: [String] -> Parser String
 oneOf ws = token (`elem` ws)
 
 -- | Parse the end of input.
-eof :: Monad m => ParserT m ()
+eof :: Parser ()
 eof = try (anyWord *> empty <|> return ())
 
 -- | Given a word parser, parse a conditional expression.
-condExpr :: Monad m => ParserT m String -> ParserT m Expr
-condExpr p = expr <* eof
+condExpr :: Parser Expr
+condExpr = expr <* eof
   where
     expr = buildExpressionParser opTable term
 
     term = word "(" *> expr <* word ")"
-       <|> Unary <$> unaryOp <*> p
-       <|> (p >>= wordTerm)
+       <|> Unary <$> unaryOp <*> anyWord
+       <|> (anyWord >>= wordTerm)
 
-    wordTerm w = Binary w <$> binaryOp <*> p
+    wordTerm w = Binary w <$> binaryOp <*> anyWord
              <|> pure (String w)
 
     opTable =
@@ -118,16 +117,12 @@ condExpr p = expr <* eof
 -- Bash commands
 -------------------------------------------------------------------------------
 
--- | Evaluate a conditional expression.
-condWith :: Monad m => ParserT m String -> [String] -> m ExitStatus
-condWith p = liftM evalEither . runParserT (condExpr p) () ""
+-- | Evaluate the @test@ builtin.
+test :: [String] -> ExitStatus
+test = evalEither . runParser condExpr () ""
   where
     evalEither (Left  _) = Just False
     evalEither (Right e) = eval e
-
--- | Evaluate the @test@ builtin.
-test :: [String] -> ExitStatus
-test = runIdentity . condWith anyWord
 
 -- | Evaluate the @[@ builtin.
 test_ :: [String] -> ExitStatus
@@ -138,5 +133,6 @@ test_ ws = case unsnoc ws of
     unsnoc [] = Nothing
     unsnoc xs = Just (init xs, last xs)
 
-cond :: [String] -> Bash ExitStatus
-cond = condWith (anyWord >>= lift . expandWord)
+-- | Evaluate a Bash conditional expression.
+cond :: [Word] -> Bash ExitStatus
+cond ws = test <$> mapM expandWord ws

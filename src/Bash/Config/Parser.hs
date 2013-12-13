@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase, OverloadedStrings #-}
 -- | The Bash parser.
 --
 -- The parser is built using Parsec over a custom token stream for
@@ -17,8 +17,9 @@ import           Text.Parsec.Prim       (ParsecT, skipMany, many)
 import qualified Text.Parsec.Prim       as P
 
 import           Bash.Config.Expand
-import           Bash.Config.Lexer
+import           Bash.Config.Lexer      hiding (word)
 import           Bash.Config.Types
+import           Bash.Config.Word
 
 -------------------------------------------------------------------------------
 -- Parser type
@@ -56,21 +57,21 @@ anyToken :: Parser Token
 anyToken = token Just
 
 -- | Parse a given word token.
-word :: String -> Parser String
-word s = token $ \case
-    TWord s' | s == s' -> Just s
+word :: Word -> Parser Word
+word w = token $ \case
+    TWord w' | w' == w -> Just w'
     _                  -> Nothing
 
 -- | Parse any word token.
-anyWord :: Parser String
+anyWord :: Parser Word
 anyWord  = token $ \case
-    TWord s -> Just s
+    TWord w -> Just w
     _       -> Nothing
 
 -- | Parse a word that is not a reserved word.
-unreservedWord :: Parser String
+unreservedWord :: Parser Word
 unreservedWord = token $ \case
-    TWord s | s `notElem` reservedWords -> Just s
+    TWord w | w `notElem` reservedWords -> Just w
     _                                   -> Nothing
 
 -- | Parse a given operator.
@@ -155,7 +156,7 @@ commandPart p = go
      <|> return []
 
 -- | Parse a simple command beginning with the given word.
-simpleCommand :: String -> Parser SimpleCommand
+simpleCommand :: Word -> Parser SimpleCommand
 simpleCommand w = SimpleCommand [] . (w :) <$> commandPart anyWord
 
 -- | Parse a simple command that begins with an assignment.
@@ -261,7 +262,7 @@ untilCommand = Until <$ word "until"
            <*  word "do" <*> compoundList <* word "done"
 
 -- | Parse a list of words for a @for@ or @select@ command.
-wordList :: Parser [String]
+wordList :: Parser [Word]
 wordList = [] <$ operator ";" <* newlineList
        <|> newlineList *> inList
   where
@@ -312,8 +313,10 @@ condCommand :: Parser ShellCommand
 condCommand = Cond <$ word "[[" <*> go
   where
     go = []  <$  word "]]"
-     <|> (:) <$> anyWord     <*> go
-     <|> (:) <$> anyOperator <*> go
+     <|> (:) <$> condPart <*> go
+
+    condPart = anyWord
+           <|> fromString <$> anyOperator
 
 -------------------------------------------------------------------------------
 -- Coprocesses
@@ -352,7 +355,7 @@ functionDef1 = FunctionDef
            <*> functionBody
 
 -- | Parse a function definition beginning with the given name.
-functionDef2 :: String -> Parser Command
+functionDef2 :: Word -> Parser Command
 functionDef2 w = FunctionDef w <$ functionParens <*> functionBody
 
 -------------------------------------------------------------------------------

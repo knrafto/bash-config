@@ -40,13 +40,13 @@ library
     Bash.Config
 
   other-modules:
-    Bash.Config.Builder
     Bash.Config.Cond
     Bash.Config.Expand
     Bash.Config.Eval
     Bash.Config.Lexer
     Bash.Config.Parser
     Bash.Config.Types
+    Bash.Config.Word
 
   build-depends:
     base         >= 4   && < 5,

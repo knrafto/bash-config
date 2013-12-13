@@ -1,4 +1,10 @@
-{-# LANGUAGE FlexibleInstances, LambdaCase, MultiParamTypeClasses #-}
+{-# LANGUAGE
+    FlexibleContexts
+  , FlexibleInstances
+  , LambdaCase
+  , MultiParamTypeClasses
+  , OverloadedStrings
+  #-}
 -- | The Bash lexer.
 module Bash.Config.Lexer
     ( -- * Tokens
@@ -11,6 +17,9 @@ module Bash.Config.Lexer
     , heredocOps
     , controlOps
     , normalOps
+      -- * Parsers
+    , name
+    , word
       -- * Tokens
     , Tokens
     , nextToken
@@ -20,22 +29,22 @@ module Bash.Config.Lexer
     , queueHeredoc
     ) where
 
-import           Prelude                   hiding (span)
+import Prelude                hiding (span)
 
-import           Control.Applicative
-import           Control.Monad
-import           Data.Char
-import           Data.Functor.Identity
-import           Data.List                 hiding (span)
-import           Data.Maybe
-import           Data.Monoid
-import           Text.Parsec.Char          hiding (newline)
-import           Text.Parsec.Prim          hiding ((<|>), many)
-import           Text.Parsec.Pos
+import Control.Applicative
+import Control.Monad
+import Data.Char
+import Data.Functor.Identity
+import Data.List              hiding (span)
+import Data.Maybe
+import Text.Parsec.Char       hiding (newline)
+import Text.Parsec.Combinator hiding (optional)
+import Text.Parsec.Prim       hiding ((<|>), many)
+import Text.Parsec.Pos
+import Text.Parsec.String     ()
 
-import           Bash.Config.Builder       (Builder, (<+>), (+>))
-import qualified Bash.Config.Builder       as B
-import           Bash.Config.Types
+import Bash.Config.Types
+import Bash.Config.Word
 
 -------------------------------------------------------------------------------
 -- Tokens
@@ -44,7 +53,7 @@ import           Bash.Config.Types
 -- | Bash tokens.
 data Token
       -- | A generic word.
-    = TWord String
+    = TWord Word
       -- | A shell operator.
     | TOperator String
       -- | An IO redirection number.
@@ -68,7 +77,7 @@ data TokenMode
 -- | Convert a token to the string it represents.
 showToken :: Token -> String
 showToken = \case
-    TWord s     -> s
+    TWord s     -> toString s
     TOperator s -> s
     TNumber i   -> show i
     TAssign a   -> showAssign a
@@ -79,8 +88,9 @@ showToken = \case
     showAssignOp Equals     = "="
     showAssignOp PlusEquals = "+="
 
-    showValue (Value s) = s
-    showValue (Array a) = "(" ++ intercalate " " a ++ ")"
+    showValue v = case fmap toString v of
+        Value s -> s
+        Array a -> "(" ++ intercalate " " a ++ ")"
 
 -------------------------------------------------------------------------------
 -- Special tokens
@@ -91,7 +101,7 @@ metachars :: String
 metachars = " \t\n;|&()<>"
 
 -- | Shell reserved words.
-reservedWords :: [String]
+reservedWords :: [Word]
 reservedWords =
     [ "!", "[[", "]]", "{", "}"
     , "if", "then", "else", "elif", "fi"
@@ -165,17 +175,40 @@ runLexer m s = case reply of
 nonempty :: MonadPlus m => m [a] -> m [a]
 nonempty m = m >>= \xs -> if null xs then mzero else return xs
 
+-- | @upTo n p@ parses zero to @n@ occurences of @p@.
+upTo :: Alternative f => Int -> f a -> f [a]
+upTo m p = go m
+  where
+    go n | n <= 0    = pure []
+         | otherwise = (:) <$> p <*> go (n - 1) <|> pure []
+
+-- | @upTo1 n p@ parses one to @n@ occurences of @p@.
+upTo1 :: Alternative f => Int -> f a -> f [a]
+upTo1 n p = (:) <$> p <*> upTo (n - 1) p
+
+-- | A stateful scanner.
+scan :: Stream s m Char => (r -> Char -> Maybe r) -> r -> ParsecT s u m String
+scan f = go
+  where
+    go s = next s <|> return []
+
+    next s = do
+        c <- anyChar
+        case f s c of
+            Nothing -> unexpected [c]
+            Just s' -> (c :) <$> go s'
+
 -- | Take a line of characters from the source, stripping the trailing
 -- newline (if any). Fails if there is no input left.
-takeLine :: Lexer String
-takeLine = B.toString <$ lookAhead anyChar
-       <*> B.takeWhile (/= '\n') <* optional (char '\n')
+takeLine :: Stream s m Char => ParsecT s u m String
+takeLine = lookAhead anyChar
+        *> many (satisfy (/= '\n')) <* optional (char '\n')
 
 -- | Skip spaces, tabs, and comments.
-skipSpace :: Lexer ()
+skipSpace :: Stream s m Char => ParsecT s u m ()
 skipSpace = () <$ skipMany spaceChar <* optional comment
   where
-    spaceChar = '\n' <$ try (string "\\\n") <|> satisfy (`elem` " \t")
+    spaceChar = '\n' <$ try (string "\\\n") <|> oneOf " \t"
     comment   = char '#' *> skipMany (satisfy (/= '\n'))
 
 -- | Lex a newline, and skip any following heredocs.
@@ -188,7 +221,7 @@ newline = do
     return "\n"
 
 -- | Skip a heredoc delimited by a string.
-skipHeredoc :: String -> Lexer ()
+skipHeredoc :: Stream s m Char => String -> ParsecT s u m ()
 skipHeredoc h = go
   where
     go = optional takeLine >>= \case
@@ -196,77 +229,144 @@ skipHeredoc h = go
         _               -> return ()
 
 -- | Parse an arithmetic expression.
-arith :: Lexer Builder
-arith = B.many $ parens <|> B.satisfy (/= ')')
+arith :: Stream s m Char => ParsecT s u m String
+arith = scan f (0 :: Int)
   where
-    parens = B.span '(' ')' parens
+    f 0 ')' = Nothing
+    f n '(' = Just (n + 1)
+    f n ')' = Just (n - 1)
+    f n _   = Just n
 
--- | Lex the longest available operator from a list.
-operator :: [String] -> Lexer String
-operator = fmap B.toString . go
+-- | Parse the longest available operator from a list.
+operator :: Stream s m Char => [String] -> ParsecT s u m String
+operator = go
   where
     go ops
         | null ops      = empty
-        | "" `elem` ops = try (continue ops) <|> pure mempty
+        | "" `elem` ops = try (continue ops) <|> pure ""
         | otherwise     = continue ops
 
     continue ops = do
         c <- anyChar
-        B.fromChar c +> go (prefix c ops)
+        (c :) <$> go (prefix c ops)
 
     prefix c = map tail . filter (\x -> not (null x) && head x == c)
 
--- | Lex a word, obeying and preserving quoting rules.
-word :: Lexer String
-word = B.toString <$> B.many naked
+-- | Parse a name.
+name :: Stream s m Char => ParsecT s u m String
+name = (:) <$> nameStart <*> many nameLetter
   where
-    naked        = mempty <$ try (string "\\\n")
-               <|> escape
-               <|> singleQuote
-               <|> doubleQuote
-               <|> backquote
-               <|> try specialQuote
-               <|> dollar
-               <|> try angle
-               <|> B.satisfy (`notElem` metachars)
+    nameStart  = letter   <|> char '_'
+    nameLetter = alphaNum <|> char '_'
 
-    escape       = B.char '\\' <+> B.anyChar
+-- | @span start end escape@ parses a span starting with @start@ and ending
+-- with @end@, with possible @escape@ sequences inside.
+span
+    :: Stream s m Char
+    => Char -> Char
+    -> ParsecT s u m Span
+    -> ParsecT s u m Word
+span start end escape = char start *> many inner <* char end
+  where
+    inner = escape
+        <|> Char <$> satisfy (/= end)
 
-    -- backslash escape a single quote outside the rest of the string
-    singleEscape = B.fromString "'\\''" <$ string "\\'"
+-- | Parse an ANSI C string in single quotes.
+ansiString :: Stream s m Char => ParsecT s u m Word
+ansiString = span '\'' '\'' (try escape)
+  where
+    escape = Escape <$ char '\\' <*> escapeCode
 
-    specialQuote = char '$' *> (ansiQuote <|> doubleQuote)
+    escapeCode = charCodes
+             <|> char 'x' *> hex 2
+             <|> char 'u' *> hex 4
+             <|> char 'U' *> hex 8
+             <|> oct 3
+             <|> char 'c' *> ctrlCodes
 
-    dollar       = B.char '$' <+> dollar_
-    dollar_      = parameter
-               <|> try arithSubst
-               <|> paren
-               <|> return mempty
+    charCodes = codes "abeEfnrtv\\\'\"" "\a\b\ESC\ESC\f\n\r\t\v\\\'\""
 
-    angle        = B.satisfy (`elem` "<>") <+> paren
+    ctrlCodes = '\FS' <$ try (string "\\\\")
+            <|> codes "@ABCDEFGHIJKLMOPQRSTUVWXYZ[]^_?"
+                      ("\NUL\SOH\STX\ETX\EOT\ENQ\ACK\BEL\BS\HT\LF\VT\FF" ++
+                       "\CR\SO\SI\DLE\DC1\DC2\DC3\DC4\NAK\SYN\ETB\CAN\EM" ++
+                       "\SUB\ESC\GS\RS\US\DEL")
 
-    singleQuote  = B.span '\'' '\'' empty
-    doubleQuote  = B.span '\"' '\"' (escape <|> backquote <|> dollar)
-    ansiQuote    = B.span '\'' '\'' (try singleEscape <|> escape)
-    backquote    = B.span '`'  '`'  escape
+    codes chars replacements = do
+        c <- anyChar
+        case lookup c table of
+            Nothing -> unexpected [c]
+            Just c' -> return c'
+      where
+        table = zip chars replacements
 
-    parameter    = B.span '{' '}' $ escape
-                                <|> singleQuote
-                                <|> doubleQuote
-                                <|> backquote
-                                <|> dollar
+    oct n = number n 8 octDigit
+    hex n = number n 16 hexDigit
 
-    -- command substitutions, subshells, function parentheses, etc.
-    paren        = B.span '(' ')' $ escape
-                                <|> singleQuote
-                                <|> doubleQuote
-                                <|> backquote
-                                <|> paren
-                                <|> dollar
-                                <|> comment
+    number maxDigits base baseDigit = do
+        digits <- map digitToInt <$> upTo1 maxDigits baseDigit
+        let n = foldl' (\x d -> base*x + d) 0 digits
+        return $ if n > ord maxBound then '\0' else chr n  -- arbitrary
 
-    arithSubst   = B.string "((" <+> arith <+> B.string "))"
-    comment      = B.char '#' <+> B.takeWhile (/= '\n')
+-- | Parse a word.
+word :: Stream s m Char => ParsecT s u m Word
+word = many bare
+  where
+    bare = try (string "\\\n" *> bare)
+       <|> escape
+       <|> single
+       <|> double
+       <|> backquote
+       <|> try specialQuote
+       <|> dollar
+       <|> processSubst
+       <|> Char <$> noneOf metachars
+
+    escape = Escape <$ char '\\' <*> anyChar
+
+    single    = Single    <$> span '\'' '\'' empty
+    double    = Double    <$> span '\"' '\"' (escape <|> backquote <|> dollar)
+    backquote = Backquote <$> span '`'  '`'  escape
+    ansi      = ANSI      <$> ansiString
+    locale    = Locale    <$> span '\"' '\"' (escape <|> backquote <|> dollar)
+
+    specialQuote = char '$' *> (ansi <|> locale)
+
+    dollar = char '$' *> rest
+      where
+        rest = ansi
+           <|> locale
+           <|> expansion
+           <|> braceExpansion
+           <|> try arithSubst
+           <|> commandSubst
+           <|> return (Char '$')
+
+    expansion = Expansion . return <$> digit
+            <|> Expansion <$> name
+
+    braceExpansion = BraceExpansion <$> span '{' '}' inner
+      where
+        inner = escape
+            <|> single
+            <|> double
+            <|> backquote
+            <|> dollar
+
+    arithSubst   = ArithSubst <$ string "((" <*> arith <* string "))"
+    commandSubst = CommandSubst <$> paren
+    processSubst = ProcessSubst <$> oneOf "<>" <*> paren
+
+    paren = char '(' *> many inner <* char ')'
+      where
+        inner = escape
+            <|> single
+            <|> double
+            <|> backquote
+            <|> dollar
+            <|> Paren <$> paren
+            <|> Comment <$ char '#' <*> many (satisfy (/= '\n'))
+            <|> Char <$> satisfy (/= ')')
 
 -------------------------------------------------------------------------------
 -- Bash token lexers
@@ -287,10 +387,14 @@ lexNormal = normalWord
     normalWord = do
         w <- nonempty word
         optional (lookAhead anyChar) <&> \case
-            Just c | isAngle c && all isDigit w -> TNumber (read w)
-            _                                   -> TWord w
+            Just c | isAngle c && all isDigitChar w
+                -> TNumber (read (toString w))
+            _   -> TWord w
 
     isAngle c = c == '<' || c == '>'
+
+    isDigitChar (Char c) | isDigit c = True
+    isDigitChar _                    = False
 
 -- | Lex a token in assignment mode.
 lexAssign :: Lexer Token
@@ -298,20 +402,16 @@ lexAssign = TAssign <$> assign
   where
     assign = Assign <$> lhs <*> assignOp <*> rhs
 
-    lhs = B.toString <$> (name <+> subscript)
+    lhs = (++) <$> name <*> option "" subscript
 
-    name = B.satisfy isNameStart <+> B.takeWhile isNameLetter
-
-    isNameStart  c = isAlpha c || c == '_'
-    isNameLetter c = isNameStart c || isDigit c
-
-    subscript = B.char '[' <+> B.takeWhile (/= ']') <+> B.char ']'
-            <|> pure mempty
+    subscript = wrap <$ char '[' <*> many (satisfy (/= ']')) <* char ']'
+      where
+        wrap s = "[" ++ s ++ "]"
 
     assignOp = operator ["=", "+="] <&> \case
         "="  -> Equals
         "+=" -> PlusEquals
-        _    -> error "Bash.Lexer.assign: unknown operator"
+        _    -> error "Bash.Lexer.lexAssign: unknown operator"
 
     rhs = Array <$  char '(' <*> arrayElems <* char ')'
       <|> Value <$> word
@@ -322,7 +422,7 @@ lexAssign = TAssign <$> assign
 
 -- | Lex a token in arithmetic mode.
 lexArith :: Lexer Token
-lexArith = TArith . B.toString <$> arith
+lexArith = TArith <$> arith
 
 -------------------------------------------------------------------------------
 -- Parsec token stream
@@ -358,11 +458,11 @@ toTokens s mode = Tokens
 
 -- | Construct a named token stream.
 makeTokens :: TokenMode -> SourceName -> String -> Tokens
-makeTokens mode name s = toTokens initialParsecState mode
+makeTokens mode source s = toTokens initialParsecState mode
   where
     initialParsecState = State
         { stateInput = s
-        , statePos   = initialPos name
+        , statePos   = initialPos source
         , stateUser  = initialState
         }
 

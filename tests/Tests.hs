@@ -118,7 +118,7 @@ testPair (TestPair heading s1 s2) = withHeading heading $ do
         Nothing -> failTest "execution failed"
         Just e  -> return e
 
-diff :: Map String Value -> Map String Value -> String
+diff :: Map String (Value String) -> Map String (Value String) -> String
 diff a b = concatMap report $ Map.keys (a `Map.union` b)
   where
     report k
@@ -132,8 +132,9 @@ diff a b = concatMap report $ Map.keys (a `Map.union` b)
         showElem Nothing  = "unknown " ++ k
         showElem (Just v) = k ++ "=" ++ showValue v
 
-        showValue (Value v)  = show v
-        showValue (Array vs) = "(" ++ intercalate " " (map show vs) ++ ")"
+        showValue v = case fmap show v of
+            Value s  -> s
+            Array ss -> "(" ++ intercalate " " ss ++ ")"
 
 prepareTests :: IO TestTree
 prepareTests = do
