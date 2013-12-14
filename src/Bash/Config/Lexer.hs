@@ -307,7 +307,7 @@ word = many bare
        <|> backquote
        <|> try specialQuote
        <|> dollar
-       <|> processSubst
+       <|> try processSubst
        <|> Char <$> noneOf metachars
 
     escape = Escape <$ char '\\' <*> anyChar
