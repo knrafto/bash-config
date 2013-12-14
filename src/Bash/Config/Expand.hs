@@ -50,7 +50,7 @@ ifsValue = valueString <$> value "IFS" <|> pure " \t\n"
     valueString (Array _) = ""
 
 -- | Brace expand a word.
--- TODO: {x..y{
+-- TODO: {x..y}
 braceExpand :: Word -> [Word]
 braceExpand = go
   where
@@ -62,7 +62,7 @@ braceExpand = go
         (preamble, w')     <- breakOn (Char '{') w
         (amble, postamble) <- breakOn (Char '}') w'
         let as = expandAmble amble
-        let bs = braceExpand postamble
+            bs = braceExpand postamble
         return [preamble ++ a ++ b | a <- as, b <- bs]
 
     expandAmble = concatAmble . map braceExpand . splitOn (Char ',')
