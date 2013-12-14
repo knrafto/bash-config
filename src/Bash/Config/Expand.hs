@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase, OverloadedStrings #-}
 -- | Shell expansions.
 module Bash.Config.Expand
     ( unquote
@@ -15,13 +15,27 @@ import Text.Parsec         hiding ((<|>))
 import Bash.Config.Types
 import Bash.Config.Word
 
+-- | Break a list on an element, if it exists.
+breakOn :: Eq a => a -> [a] -> Maybe ([a], [a])
+breakOn z = breakBy (== z)
+
+-- | Break a list on an predicate, if it exists.
+breakBy :: (a -> Bool) -> [a] -> Maybe ([a], [a])
+breakBy p xs = case break p xs of
+    (ys, (x:xs')) | p x -> Just (ys, xs')
+    _                   -> Nothing
+
+-- | Split a list on an element.
+splitOn :: Eq a => a -> [a] -> [[a]]
+splitOn z = splitBy (== z)
+
 -- | Split a list on a predicate.
 splitBy :: (a -> Bool) -> [a] -> [[a]]
 splitBy p = go
   where
-    go xs = case dropWhile p xs of
-        []  -> []
-        xs' -> let (w, xs'') = break p xs' in  w : go xs''
+    go xs = case breakBy p xs of
+        Nothing        -> [xs]
+        Just (ys, xs') -> ys : go xs'
 
 -- | Map a monadic action over a list and concatenate the results.
 concatMapM :: Monad m => (a -> m [b]) -> [a] -> m [b]
@@ -34,11 +48,27 @@ ifsValue = valueString <$> value "IFS" <|> pure " \t\n"
     valueString (Value v) = v
     valueString (Array _) = ""
 
--- | Brace expand a word. Parameters are either of the form @{a,b,c}@, or
--- @{x..y[..incr]}@ where @x@ and @y@ are either integers or single
--- characters, and @incr@ is an integer increment.
+-- | Brace expand a word.
+-- TODO: {x..y{
 braceExpand :: Word -> [Word]
-braceExpand = undefined
+braceExpand = go
+  where
+    go w = case brace w of
+        Nothing -> [w]
+        Just ws -> ws
+
+    brace w = do
+        (preamble, w')     <- breakOn (Char '{') w
+        (amble, postamble) <- breakOn (Char '}') w'
+        let as = expandAmble amble
+        let bs = braceExpand postamble
+        return [preamble ++ a ++ b | a <- as, b <- bs]
+
+    expandAmble = concatAmble . map braceExpand . splitOn (Char ',')
+
+    concatAmble []   = ["{}"]
+    concatAmble [xs] = map (\s -> "{" ++ s ++ "}") xs
+    concatAmble xss  = concat xss
 
 -- | Fail if a tilde expansion should be performed.
 tildeExpand :: Word -> Bash Word
@@ -80,9 +110,9 @@ expand = concatMapM $ \case
 splitWord :: Word -> Bash [Word]
 splitWord w = do
     ifs <- ifsValue
-    let isIFS (Char c) | c `elem` ifs = True
-        isIFS _                       = False
-    return (splitBy isIFS w)
+    let isSep (Char c) | c `elem` ifs = True
+        isSep _                       = False
+    return (splitBy isSep w)
 
 -- | Fail if a filename expansion should be performed.
 filenameExpand :: Word -> Bash Word
