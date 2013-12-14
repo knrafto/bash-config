@@ -9,6 +9,8 @@ module Bash.Config.Expand
 
 import Control.Applicative
 import Control.Monad
+import Control.Monad.Trans
+import Text.Parsec         hiding ((<|>))
 
 import Bash.Config.Types
 import Bash.Config.Word
@@ -32,7 +34,7 @@ ifsValue = valueString <$> value "IFS" <|> pure " \t\n"
     valueString (Value v) = v
     valueString (Array _) = ""
 
--- | Brace expand a word. Expansions are either of the form @{a,b,c}@, or
+-- | Brace expand a word. Parameters are either of the form @{a,b,c}@, or
 -- @{x..y[..incr]}@ where @x@ and @y@ are either integers or single
 -- characters, and @incr@ is an integer increment.
 braceExpand :: Word -> [Word]
@@ -43,10 +45,36 @@ tildeExpand :: Word -> Bash Word
 tildeExpand (Char '~':_) = empty
 tildeExpand s            = return s
 
+-- | Perform an expansion.
+expansion :: String -> Bash String
+expansion s = runParserT (brace <* eof) () s s >>= \case
+    Left  _ -> empty
+    Right r -> return r
+  where
+    brace = char '!' *> lift empty
+        <|> char '#' *> lift empty
+        <|> parameter
+
+    parameter = do
+        name <- many1 (alphaNum <|> char '_')
+        fromValue <$> lift (value name)
+      where
+        fromValue (Value v)     = v
+        fromValue (Array (v:_)) = v
+        fromValue _             = ""
+
 -- | Perform parameter expansion, arithmetic expansion, command
 -- substitution, and process substitution.
 expand :: Word -> Bash Word
-expand = undefined
+expand = concatMapM $ \case
+    Double w         -> expand w
+    Backquote _      -> empty
+    Parameter s      -> fromString <$> expansion s
+    BraceParameter w -> fromString <$> expansion (toString w)
+    ArithSubst _     -> empty
+    CommandSubst _   -> empty
+    ProcessSubst _ _ -> empty
+    s                -> return [s]
 
 -- | Split a word into multiple words.
 splitWord :: Word -> Bash [Word]

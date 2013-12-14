@@ -325,16 +325,16 @@ word = many bare
 
     dollar = char '$' *> rest
       where
-        rest = expansion
-           <|> braceExpansion
+        rest = parameter
+           <|> braceParameter
            <|> try arithSubst
            <|> commandSubst
            <|> return (Char '$')
 
-    expansion = Expansion . return <$> digit
-            <|> Expansion <$> name
+    parameter = Parameter . return <$> digit
+            <|> Parameter <$> name
 
-    braceExpansion = BraceExpansion <$> span '{' '}' inner
+    braceParameter = BraceParameter <$> span '{' '}' inner
       where
         inner = escape
             <|> single

@@ -24,8 +24,8 @@ data Span
     | Single Word
     | Double Word
     | Backquote Word
-    | Expansion String
-    | BraceExpansion Word
+    | Parameter String
+    | BraceParameter Word
     | ArithSubst String
     | CommandSubst Word
     | ProcessSubst Char Word
@@ -54,8 +54,8 @@ toString = ($ "") . go
         Single w         -> span "\'"  "\'" (go w)
         Double w         -> span "\""  "\"" (go w)
         Backquote w      -> span "`"   "`"  (go w)
-        Expansion s      -> showChar '$' . showString s
-        BraceExpansion w -> span "${"  "}"  (go w)
+        Parameter s      -> showChar '$' . showString s
+        BraceParameter w -> span "${"  "}"  (go w)
         ArithSubst s     -> span "$((" "))" (showString s)
         CommandSubst w   -> span "$("  ")"  (go w)
         ProcessSubst c w -> showChar c . span "(" ")" (go w)
