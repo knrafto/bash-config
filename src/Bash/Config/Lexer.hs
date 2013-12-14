@@ -375,15 +375,10 @@ lexNormal = normalWord
   where
     normalWord = do
         w <- nonempty word
+        let s = toString w
         optional (lookAhead anyChar) <&> \case
-            Just c | isAngle c && all isDigitChar w
-                -> TNumber (read (toString w))
-            _   -> TWord w
-
-    isAngle c = c == '<' || c == '>'
-
-    isDigitChar (Char c) | isDigit c = True
-    isDigitChar _                    = False
+            Just c | c `elem` "<>" && all isDigit s -> TNumber (read s)
+            _                                       -> TWord w
 
 -- | Lex a token in assignment mode.
 lexAssign :: Lexer Token
