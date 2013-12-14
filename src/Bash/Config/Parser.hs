@@ -30,7 +30,7 @@ type Parser = ParsecT Tokens () Identity
 
 -- | Run the parser with a source name and a 'String' input.
 parse :: SourceName -> String -> Either ParseError Script
-parse name s = P.parse script name (makeTokens NormalMode name s)
+parse source s = P.parse script source (makeTokens NormalMode source s)
 
 -------------------------------------------------------------------------------
 -- Parser primitives

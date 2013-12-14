@@ -23,8 +23,6 @@ data Span
     | Escape Char
     | Single Word
     | Double Word
-    | ANSI Word
-    | Locale Word
     | Backquote Word
     | Expansion String
     | BraceExpansion Word
@@ -53,20 +51,18 @@ toString = ($ "") . go
     go = showMany $ \case
         Char c           -> showChar c
         Escape c         -> showChar '\\' . showChar c
-        Single w         -> span "\'"  "\'" w
-        Double w         -> span "\""  "\"" w
-        ANSI w           -> span "$'"  "'"  w
-        Locale w         -> span "$\"" "\"" w
-        Backquote w      -> span "`"   "`"  w
+        Single w         -> span "\'"  "\'" (go w)
+        Double w         -> span "\""  "\"" (go w)
+        Backquote w      -> span "`"   "`"  (go w)
         Expansion s      -> showChar '$' . showString s
-        BraceExpansion w -> span "${" "}"  w
-        ArithSubst s     -> showString "$((" . showString s . showString "))"
-        CommandSubst w   -> span "$(" ")"  w
-        ProcessSubst c w -> showChar c . span "(" ")" w
-        Paren w          -> span "("  ")"  w
+        BraceExpansion w -> span "${"  "}"  (go w)
+        ArithSubst s     -> span "$((" "))" (showString s)
+        CommandSubst w   -> span "$("  ")"  (go w)
+        ProcessSubst c w -> showChar c . span "(" ")" (go w)
+        Paren w          -> span "("   ")"  (go w)
         Comment s        -> showChar '#' . showString s
 
-    span start end w = showString start . go w . showString end
+    span start end f = showString start . f . showString end
 
 -- | Remove all quoting from a word. This unquotes quoted or escaped
 -- characters, and removes expansions and substitutions.
@@ -78,6 +74,4 @@ unquote = ($ "") . go
         Escape c -> showChar c
         Single w -> go w
         Double w -> go w
-        ANSI w   -> go w
-        Locale w -> go w
         _        -> id

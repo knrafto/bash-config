@@ -186,18 +186,6 @@ upTo m p = go m
 upTo1 :: Alternative f => Int -> f a -> f [a]
 upTo1 n p = (:) <$> p <*> upTo (n - 1) p
 
--- | A stateful scanner.
-scan :: Stream s m Char => (r -> Char -> Maybe r) -> r -> ParsecT s u m String
-scan f = go
-  where
-    go s = next s <|> return []
-
-    next s = do
-        c <- anyChar
-        case f s c of
-            Nothing -> unexpected [c]
-            Just s' -> (c :) <$> go s'
-
 -- | Take a line of characters from the source, stripping the trailing
 -- newline (if any). Fails if there is no input left.
 takeLine :: Stream s m Char => ParsecT s u m String
@@ -230,12 +218,12 @@ skipHeredoc h = go
 
 -- | Parse an arithmetic expression.
 arith :: Stream s m Char => ParsecT s u m String
-arith = scan f (0 :: Int)
+arith = toString <$> go
   where
-    f 0 ')' = Nothing
-    f n '(' = Just (n + 1)
-    f n ')' = Just (n - 1)
-    f n _   = Just n
+    go = many inner
+
+    inner = Paren <$ char '(' <*> go <* char ')'
+        <|> Char <$> satisfy (/= ')')
 
 -- | Parse the longest available operator from a list.
 operator :: Stream s m Char => [String] -> ParsecT s u m String
@@ -324,19 +312,20 @@ word = many bare
 
     escape = Escape <$ char '\\' <*> anyChar
 
-    single    = Single    <$> span '\'' '\'' empty
-    double    = Double    <$> span '\"' '\"' (escape <|> backquote <|> dollar)
-    backquote = Backquote <$> span '`'  '`'  escape
-    ansi      = ANSI      <$> ansiString
-    locale    = Locale    <$> span '\"' '\"' (escape <|> backquote <|> dollar)
+    single = Single <$> span '\'' '\'' empty
 
-    specialQuote = char '$' *> (ansi <|> locale)
+    double = Double <$> span '\"' '\"' (escape <|> backquote <|> dollar)
+
+    backquote = Backquote <$> span '`'  '`'  escape
+
+    specialQuote = char '$' *> rest
+      where
+        rest = Single <$> ansiString
+           <|> double
 
     dollar = char '$' *> rest
       where
-        rest = ansi
-           <|> locale
-           <|> expansion
+        rest = expansion
            <|> braceExpansion
            <|> try arithSubst
            <|> commandSubst
