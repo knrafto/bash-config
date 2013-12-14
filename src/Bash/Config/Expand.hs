@@ -10,6 +10,7 @@ module Bash.Config.Expand
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Trans
+import Data.Maybe
 import Text.Parsec         hiding ((<|>))
 
 import Bash.Config.Types
@@ -116,12 +117,15 @@ splitWord w = do
 
 -- | Fail if a filename expansion should be performed.
 filenameExpand :: Word -> Bash Word
-filenameExpand s
-    | any isGlob s = empty
-    | otherwise    = return s
+filenameExpand w
+    | any (== Char '*') w = empty
+    | any (== Char '?') w = empty
+    | hasCharClass        = empty
+    | otherwise           = return w
   where
-    isGlob (Char c) | c `elem` "*?[" = True
-    isGlob _                         = False
+    hasCharClass = isJust $ do
+        (_, w') <- breakOn (Char '[') w
+        breakOn (Char ']') w'
 
 -- | Expand a single word.
 expandWord :: Word -> Bash String
