@@ -1,7 +1,8 @@
 ### Basic redirections
 cat < /dev/null
+[ "foo" != "bar" ] && var1=pass
 ###
-# empty
+var1=pass
 
 ### Redirection numbers
 test "foo" != "bar" 15>/dev/null && var1=pass
