@@ -21,7 +21,7 @@ description:
   subset of Bash. No commands are actually executed. Since this in theory
   could limit the ability to interpret a configuration file, the interpreter
   only returns variables it is sure are correct; all other variables are
-  "unknown". In practice, however, configuration scripts are simple enough
+  unknown. In practice, however, configuration scripts are simple enough
   and pure enough for the library to interpret completely.
 
 extra-source-files:
