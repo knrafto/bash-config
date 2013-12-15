@@ -17,7 +17,7 @@ var1=pass
 ### Pipelines
 ! false && var1=pass
 ! || var2=pass
-time ! true | unknown | false && var3=pass
+time -p -- ! true | unknown | false && var3=pass
 ###
 var1=pass
 var2=pass

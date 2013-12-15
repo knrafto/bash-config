@@ -10,6 +10,7 @@ module Bash.Config.Parser
 
 import           Control.Applicative    hiding (optional, many)
 import           Control.Monad.Identity
+import           Data.Char
 import           Text.Parsec.Combinator hiding (anyToken, eof)
 import           Text.Parsec.Error      (ParseError)
 import           Text.Parsec.Pos
@@ -96,6 +97,20 @@ assign :: Parser Assign
 assign = withMode AssignMode $ token $ \case
     TAssign s -> Just s
     _         -> Nothing
+
+-- | Parse a word representing a flag.
+flag :: Parser Word
+flag = token $ \case
+    TWord w | isFlag (toString w) -> Just w
+    _                             -> Nothing
+  where
+    isFlag s = not (null s)
+            && head s == '-'
+            && all (\c -> isAlpha c || c == '-') s
+
+-- | Parse a list of flags.
+flags :: Parser [Word]
+flags = many flag
 
 -- | Parse an arithmetic expression, including the trailing @))@.
 arith :: Parser String
@@ -184,8 +199,7 @@ pipelineCommand = time *> (bang <|> pipeline0)
 
     pipelineSep = (operator "|" <|> operator "|&") <* newlineList
 
-    time     = word "time" *> optional timeArgs
-    timeArgs = word "-p" *> optional (word "--")
+    time = word "time" *> flags
 
     invert (Pipeline b cs) = Pipeline (not b) cs
 
