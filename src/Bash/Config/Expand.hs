@@ -73,17 +73,17 @@ braceExpand = go
 
 -- | Fail if a tilde expansion should be performed.
 tildeExpand :: Word -> Bash Word
-tildeExpand (Char '~':_) = empty
-tildeExpand s            = return s
+tildeExpand w@(Char '~':_) = unimplemented (toString w)
+tildeExpand w              = return w
 
 -- | Perform an expansion.
 expansion :: String -> Bash String
 expansion s = runParserT (brace <* eof) () s s >>= \case
-    Left  _ -> empty
+    Left  _ -> unimplemented s
     Right r -> return r
   where
-    brace = char '!' *> lift empty
-        <|> char '#' *> lift empty
+    brace = char '!' *> lift (unimplemented s)
+        <|> char '#' *> lift (unimplemented s)
         <|> parameter
 
     parameter = do
@@ -97,15 +97,15 @@ expansion s = runParserT (brace <* eof) () s s >>= \case
 -- | Perform parameter expansion, arithmetic expansion, command
 -- substitution, and process substitution.
 expand :: Word -> Bash Word
-expand = concatMapM $ \case
+expand = concatMapM $ \c -> case c of
     Double w         -> return . Double <$> expand w
-    Backquote _      -> empty
+    Backquote _      -> unimplemented (toString [c])
     Parameter s      -> fromString <$> expansion s
     BraceParameter w -> fromString <$> expansion (toString w)
-    ArithSubst _     -> empty
-    CommandSubst _   -> empty
-    ProcessSubst _ _ -> empty
-    s                -> return [s]
+    ArithSubst _     -> unimplemented (toString [c])
+    CommandSubst _   -> unimplemented (toString [c])
+    ProcessSubst _ _ -> unimplemented (toString [c])
+    _                -> return [c]
 
 -- | Split a word into multiple words.
 splitWord :: Word -> Bash [Word]
@@ -118,9 +118,9 @@ splitWord w = do
 -- | Fail if a filename expansion should be performed.
 filenameExpand :: Word -> Bash Word
 filenameExpand w
-    | any (== Char '*') w = empty
-    | any (== Char '?') w = empty
-    | hasCharClass        = empty
+    | any (== Char '*') w = unimplemented (toString w)
+    | any (== Char '?') w = unimplemented (toString w)
+    | hasCharClass        = unimplemented (toString w)
     | otherwise           = return w
   where
     hasCharClass = isJust $ do

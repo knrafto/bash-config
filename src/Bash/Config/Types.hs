@@ -11,6 +11,7 @@ module Bash.Config.Types
     , ExitStatus
     , Status(..)
     , Bash(..)
+    , unimplemented
       -- ** Parameters
     , set
     , augment
@@ -85,7 +86,7 @@ data Status
     deriving (Eq, Ord, Enum, Bounded)
 
 -- | The Bash execution monad.
-newtype Bash a = Bash { runBash :: Status -> Env -> Maybe (a, Env) }
+newtype Bash a = Bash { runBash :: Status -> Env -> Either String (a, Env) }
     deriving (Functor)
 
 instance Applicative Bash where
@@ -97,30 +98,34 @@ instance Alternative Bash where
     (<|>) = mplus
 
 instance Monad Bash where
-    return a = Bash $ \_ s -> Just (a, s)
+    return a = Bash $ \_ s -> Right (a, s)
     m >>= k  = Bash $ \r s -> do
                    (a, s') <- runBash m r s
                    runBash (k a) r s'
-    fail _   = Bash $ \_ _ -> Nothing
+    fail s   = Bash $ \_ _ -> Left s
 
 instance MonadPlus Bash where
     mzero     = fail "mzero"
     mplus a b = Bash $ \r s -> runBash a r s `mplus` runBash b r s
 
 instance MonadReader Status Bash where
-    ask       = Bash $ \r s -> Just (r, s)
+    ask       = Bash $ \r s -> Right (r, s)
     local f m = Bash $ \r s -> runBash m (f r) s
-    reader f  = Bash $ \r s -> Just (f r, s)
+    reader f  = Bash $ \r s -> Right (f r, s)
 
 instance MonadState Env Bash where
-    get     = Bash $ \_ s -> Just (s, s)
-    put s   = Bash $ \_ _ -> Just ((), s)
-    state f = Bash $ \_ s -> Just (f s)
+    get     = Bash $ \_ s -> Right (s, s)
+    put s   = Bash $ \_ _ -> Right ((), s)
+    state f = Bash $ \_ s -> Right (f s)
 
--- | Fail if the current execution status is dirty.
-whenClean :: Bash a -> Bash a
-whenClean m = ask >>= \case
-    Dirty -> empty
+-- | Fail with a message.
+unimplemented :: String -> Bash a
+unimplemented = fail
+
+-- | Fail with a message if the current execution status is dirty.
+whenClean :: String -> Bash a -> Bash a
+whenClean s m = ask >>= \case
+    Dirty -> fail s
     Clean -> m
 
 -------------------------------------------------------------------------------
@@ -135,7 +140,7 @@ modifyParameters f = modify $ \env -> env { parameters = f (parameters env) }
 
 -- | Set a shell parameter. Fails if the current execution status is dirty.
 set :: String -> Value String -> Bash ()
-set name a = whenClean $ modifyParameters (Map.insert name a)
+set name a = whenClean name $ modifyParameters (Map.insert name a)
 
 -- | Add to a shell parameter.
 augment :: String -> Value String -> Bash ()
@@ -157,7 +162,7 @@ unset name = modifyParameters (Map.delete name)
 -- | Get the value of a binding, if it is known.
 value :: String -> Bash (Value String)
 value name = gets (Map.lookup name . parameters) >>= \case
-    Nothing -> empty
+    Nothing -> fail name
     Just v  -> return v
 
 -------------------------------------------------------------------------------
@@ -170,7 +175,7 @@ modifyFunctions f = modify $ \env -> env { functions = f (functions env) }
 
 -- | Define a shell function. Fails if the current execution status is dirty.
 define :: String -> Function -> Bash ()
-define name body = whenClean $ modifyFunctions (Map.insert name body)
+define name body = whenClean name $ modifyFunctions (Map.insert name body)
 
 -- | Undefine a shell function.
 undefine :: String -> Bash ()

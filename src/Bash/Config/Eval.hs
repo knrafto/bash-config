@@ -20,7 +20,7 @@ import           Bash.Config.Word
 -- | Interpret a script or function, returning the resulting environment
 -- variables and function definitions. Any variables or functions missing
 -- are assumed to be unknown.
-interpret :: Eval a => a -> Env -> Maybe Env
+interpret :: Eval a => a -> Env -> Either String Env
 interpret a = fmap snd . runBash (eval a) Clean
 
 -- | Evaluate with a dirty status.
@@ -69,7 +69,7 @@ builtins = Map.fromList $
     , ("false", \_ -> return (Just False))
     ]
     -- unsafe builtins
-    ++ map (\name -> (name, const empty))
+    ++ map (\name -> (name, \_ -> unimplemented name))
         [ ".", "alias", "builtin", "caller", "declare", "enable", "exec"
         , "exit", "export", "let", "local", "logout", "mapfile", "read"
         , "readarray", "readonly", "return", "source", "trap", "typeset"
@@ -92,7 +92,7 @@ instance Eval Command where
     eval (Simple c)        = eval c
     eval (Shell c)         = eval c
     eval (FunctionDef w f) = functionDef w f
-    eval Coproc            = empty
+    eval Coproc            = unimplemented "coproc"
 
 instance Eval List where
     eval (List cs) = eval cs
@@ -137,10 +137,10 @@ instance Eval Function where
 instance Eval ShellCommand where
     eval (Subshell l  ) = subshell l
     eval (Group l     ) = eval l
-    eval (Arith _     ) = empty
+    eval (Arith s     ) = unimplemented $ "((" ++ s ++ "))"
     eval (Cond ws     ) = cond ws
     eval (For _ _ l   ) = dirty l
-    eval (ArithFor _ _) = empty
+    eval (ArithFor s _) = unimplemented $ "for ((" ++ s ++ "))"
     eval (Select _ _ l) = dirty l
     eval (Case _ cs   ) = eval cs
     eval (If p t f    ) = eval p >>= \case
