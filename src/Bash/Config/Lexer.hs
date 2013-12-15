@@ -332,8 +332,11 @@ word = many bare
            <|> commandSubst
            <|> return (Char '$')
 
-    parameter = Parameter . return <$> digit
-            <|> Parameter <$> name
+    parameter = Parameter . fromString <$> rest
+      where
+        rest = name
+           <|> return <$> digit
+           <|> return <$> oneOf "*@#?-$!_"
 
     braceParameter = BraceParameter <$> span '{' '}' inner
       where

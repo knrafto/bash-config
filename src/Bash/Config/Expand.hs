@@ -82,11 +82,13 @@ tildeExpand w@(Char '~':_) = unimplemented (toString w)
 tildeExpand w              = return w
 
 -- | Perform an expansion.
-expansion :: String -> Bash String
-expansion s = runParserT (brace <* eof) () s s >>= \case
+expansion :: Word -> Bash Word
+expansion w = runParserT (brace <* eof) () "" s >>= \case
     Left  _ -> unimplemented s
-    Right r -> return r
+    Right r -> return (fromString r)
   where
+    s = toString w
+
     brace = char '!' *> lift (unimplemented s)
         <|> char '#' *> lift (unimplemented s)
         <|> parameter
@@ -105,8 +107,8 @@ expand :: Word -> Bash Word
 expand = concatMapM $ \c -> case c of
     Double w         -> return . Double <$> expand w
     Backquote _      -> unimplemented (toString [c])
-    Parameter s      -> fromString <$> expansion s
-    BraceParameter w -> fromString <$> expansion (toString w)
+    Parameter w      -> expansion w
+    BraceParameter w -> expansion w
     ArithSubst _     -> unimplemented (toString [c])
     CommandSubst _   -> unimplemented (toString [c])
     ProcessSubst _ _ -> unimplemented (toString [c])
