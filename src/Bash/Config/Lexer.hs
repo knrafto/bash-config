@@ -117,10 +117,11 @@ redirOps = [">", "<", ">>", ">|", "<>", "<<<", "<&", ">&", "&>", "&>>"]
 heredocOps :: [String]
 heredocOps = ["<<", "<<-"]
 
--- | Shell control operators.
+-- | Shell control operators. @))@ is not included, because it is lexed in
+-- arithmetic mode.
 controlOps :: [String]
 controlOps =
-    [ "(", ")", "((", "))", ";;", ";&", ";;&"
+    [ "(", ")", "((", ";;", ";&", ";;&"
     , "|", "|&", "||", "&&", ";", "&", "\n"
     ]
 
@@ -380,7 +381,7 @@ lexNormal = normalWord
             Just c | c `elem` "<>" && all isDigit s -> TNumber (read s)
             _                                       -> TWord w
 
--- | Lex a token in assignment mode.
+-- | Lex a token in assignment mode. This lexes only assignment statements.
 lexAssign :: Lexer Token
 lexAssign = TAssign <$> assign
   where
@@ -404,9 +405,10 @@ lexAssign = TAssign <$> assign
 
     skipArraySpace = skipSpace >> (char '\n' *> skipArraySpace <|> return ())
 
--- | Lex a token in arithmetic mode.
+-- | Lex a token in arithmetic mode. This lexes an arithmetic expression up
+-- to and including the trailing @))@.
 lexArith :: Lexer Token
-lexArith = TArith <$> arith
+lexArith = TArith <$> arith <* string "))"
 
 -------------------------------------------------------------------------------
 -- Parsec token stream

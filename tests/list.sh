@@ -31,5 +31,6 @@ var2=pass
 
 ### Subshells
 ( false; unknown; var1=fail; true ) && var2=pass
+( (false)) # confusing parse
 ###
 var2=pass

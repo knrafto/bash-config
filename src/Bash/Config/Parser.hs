@@ -97,7 +97,7 @@ assign = withMode AssignMode $ token $ \case
     TAssign s -> Just s
     _         -> Nothing
 
--- | Parse an arithmetic expression.
+-- | Parse an arithmetic expression, including the trailing @))@.
 arith :: Parser String
 arith = withMode ArithMode $ token $ \case
     TArith s -> Just s
@@ -275,7 +275,7 @@ forCommand :: Parser ShellCommand
 forCommand = word "for" *> (arithFor_ <|> for_)
   where
     arithFor_ = ArithFor
-            <$  operator "((" <*> arith <* operator "))"
+            <$  operator "((" <*> arith
             <*  optional listTerm
             <*> doGroup
 
@@ -307,7 +307,7 @@ group = Group <$ word "{" <*> compoundList <* word "}"
 
 -- | Parse an arithmetic command.
 arithCommand :: Parser ShellCommand
-arithCommand = Arith <$ operator "((" <*> arith <* operator "))"
+arithCommand = Arith <$ operator "((" <*> arith
 
 -- | Parse a conditional command.
 condCommand :: Parser ShellCommand
