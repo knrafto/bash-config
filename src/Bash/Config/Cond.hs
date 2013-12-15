@@ -135,4 +135,4 @@ test_ ss = case unsnoc ss of
 cond :: [Word] -> Bash ExitStatus
 cond ws = case parse condExpr "" ws of
     Left  _ -> return (Just False)
-    Right e -> eval <$> traverse expandWord e
+    Right e -> eval <$> traverse expandWord e <|> pure Nothing
