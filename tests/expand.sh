@@ -21,9 +21,11 @@ if test $var; then var=pass; else var=fail; fi
 var=pass
 
 ### Expand to empty words
+foo=
 var1=pass $foo
 var2=fail "$foo"
 ###
+foo=
 var1=pass
 
 ### Tilde expansion

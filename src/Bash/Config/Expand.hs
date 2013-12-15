@@ -98,7 +98,7 @@ expansion s = runParserT (brace <* eof) () s s >>= \case
 -- substitution, and process substitution.
 expand :: Word -> Bash Word
 expand = concatMapM $ \case
-    Double w         -> expand w
+    Double w         -> return . Double <$> expand w
     Backquote _      -> empty
     Parameter s      -> fromString <$> expansion s
     BraceParameter w -> fromString <$> expansion (toString w)
