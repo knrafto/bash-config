@@ -8,6 +8,7 @@ module Main ( main ) where
 
 import           Control.Applicative
 import           Control.Monad
+import           Control.Monad.Trans
 import           Data.Char
 import           Data.List
 import           Data.Map               (Map)
@@ -40,7 +41,7 @@ parseTest :: FilePath -> IO [TestPair]
 parseTest file = do
     ls <- lines <$> readFile file
     runParserT (many1 pair <* eof) () file ls >>= \case
-        Left  _  -> fail "unmatched test parts"
+        Left  _  -> fail $ file ++ ": parse failed"
         Right ps -> return ps
   where
     satisfy p = tokenPrim id updatePos test
@@ -67,7 +68,8 @@ parseTest file = do
         offset <- subtract 1 <$> lineNumber
         ls <- many1 testLine
         case Bash.parse file (unlines ls) of
-            Left  e -> fail . show $ incParseErrorLine offset e
+            Left  e -> do lift . print $ incParseErrorLine offset e
+                          mzero
             Right s -> return (name, s)
 
     incParseErrorLine offset e =
@@ -92,8 +94,8 @@ runTest (TestPair _ s1 s2) = do
     return $ Result (null msg) msg
   where
     execute s = case Bash.interpret s emptyEnv of
-        Nothing -> fail "execution failed"
-        Just e  -> return e
+        Left  e -> fail $ "execution failed: " ++ e
+        Right e -> return e
 
 diff :: Map String (Value String) -> Map String (Value String) -> String
 diff a b = concatMap report $ Map.keys (a `Map.union` b)

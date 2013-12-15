@@ -54,7 +54,8 @@ case word in
         var1=reset
         ;;&
     (pat3|pat4) var2=reset ;&
-    pat5) ;;
+    default)
+      ;;
 esac
 ###
 # empty
