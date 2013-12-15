@@ -8,7 +8,6 @@ module Bash.Config.Eval
 import           Control.Applicative
 import           Control.Monad.Reader.Class
 import           Control.Monad.State.Class
-import           Data.Char
 import           Data.Map                   (Map)
 import qualified Data.Map                   as Map
 import           Data.Monoid                hiding (Last)
@@ -48,18 +47,10 @@ command name args = do
 
 -- | Execute a function definition.
 functionDef :: Word -> Function -> Bash ExitStatus
-functionDef w f
-    | isName name = Just True <$ define name f
-                <|> Nothing   <$ undefine name
-    | otherwise   = empty
+functionDef w f = Just True <$ define name f
+              <|> Nothing   <$ undefine name
   where
-    name           = toString w
-
-    isName (c:cs)  = isNameStart c && all isNameLetter cs
-    isName _       = False
-
-    isNameStart c  = isAlpha c || c == '_'
-    isNameLetter c = isAlphaNum c || c == '_'
+    name = toString w
 
 -- | Interpreter builtins. These are commands the the interpreter knows
 -- how to execute. Any command not in this map is assumed to be user-defined,
