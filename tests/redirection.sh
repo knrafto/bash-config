@@ -23,7 +23,8 @@ EOF1
 var2=fail
 EOF2 fake
 var3=fail
-EOF2
+# tab, not spaces
+	EOF2
 var4=pass
 ###
 var4=pass

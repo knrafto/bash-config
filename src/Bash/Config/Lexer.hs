@@ -213,8 +213,8 @@ skipHeredoc :: Stream s m Char => String -> ParsecT s u m ()
 skipHeredoc h = go
   where
     go = optional takeLine >>= \case
-        Just l | l /= h -> go
-        _               -> return ()
+        Just l | dropWhile (== '\t') l /= h -> go
+        _                                   -> return ()
 
 -- | Parse an arithmetic expression.
 arith :: Stream s m Char => ParsecT s u m String
