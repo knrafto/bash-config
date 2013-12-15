@@ -7,10 +7,7 @@
 module Main ( main ) where
 
 import           Control.Applicative
-import           Control.Exception      (Exception)
-import qualified Control.Exception      as E
 import           Control.Monad
-import           Control.Monad.IO.Class
 import           Data.Char
 import           Data.List
 import           Data.Map               (Map)
@@ -30,39 +27,20 @@ import           Text.Parsec.Prim       hiding ((<|>), parseTest)
 import           Bash.Config            hiding (parse, interpret)
 import qualified Bash.Config            as Bash (parse, interpret)
 
-newtype TestFile = TestFile FilePath deriving (Typeable)
-
-instance IsTest TestFile where
-    run _ (TestFile file) _ = toResult <$> E.try (runTest file)
-      where
-        toResult (Left (TestFailed msg)) = Result False msg
-        toResult _                       = Result True ""
-
-    testOptions = return []
-
-newtype TestFailed = TestFailed String
-    deriving (Show, Typeable)
-
-instance Exception TestFailed
-
 data TestHeading = TestHeading String Line Line
 
 data TestPair = TestPair TestHeading Script Script
+    deriving (Typeable)
 
-failTest :: MonadIO m => String -> m a
-failTest = liftIO . E.throwIO . TestFailed
-
-modifyFailure :: (String -> String) -> IO a -> IO a
-modifyFailure f = E.handle $ \(TestFailed msg) -> failTest (f msg)
-
-indent :: Int -> String -> String
-indent n = unlines . map (replicate n ' ' ++) . lines
+instance IsTest TestPair where
+    run _ p _   = runTest p
+    testOptions = return []
 
 parseTest :: FilePath -> IO [TestPair]
 parseTest file = do
     ls <- lines <$> readFile file
     runParserT (many1 pair <* eof) () file ls >>= \case
-        Left  _  -> failTest "unmatched test parts"
+        Left  _  -> fail "unmatched test parts"
         Right ps -> return ps
   where
     satisfy p = tokenPrim id updatePos test
@@ -89,33 +67,32 @@ parseTest file = do
         offset <- subtract 1 <$> lineNumber
         ls <- many1 testLine
         case Bash.parse file (unlines ls) of
-            Left  e -> failTest . show $ incParseErrorLine offset e
+            Left  e -> fail . show $ incParseErrorLine offset e
             Right s -> return (name, s)
 
     incParseErrorLine offset e =
         setErrorPos (incSourceLine (errorPos e) offset) e
 
-testFile :: FilePath -> TestTree
-testFile file = singleTest (takeBaseName file) (TestFile file)
+testPair :: TestPair -> TestTree
+testPair p@(TestPair heading _ _) = singleTest (showHeading heading) p
+  where
+    showHeading (TestHeading name l1 l2) =
+        "(" ++ show l1 ++ "-" ++ show l2 ++ ")" ++
+        if null name then "" else (" " ++ name)
 
-runTest :: FilePath -> IO ()
-runTest file = do
-    pairs <- parseTest file
-    mapM_ testPair pairs
+testFile :: FilePath -> IO TestTree
+testFile file = do
+    ps <- parseTest file
+    return $ testGroup file (map testPair ps)
 
-testPair :: TestPair -> IO ()
-testPair (TestPair heading s1 s2) = withHeading heading $ do
+runTest :: TestPair -> IO Result
+runTest (TestPair _ s1 s2) = do
     [e1, e2] <- mapM execute [s1, s2]
     let msg = diff (parameters e1) (parameters e2)
-    unless (null msg) $ failTest msg
+    return $ Result (null msg) msg
   where
-    withHeading (TestHeading name l1 l2) = modifyFailure $ \s ->
-        name ++ (if null name then "" else " ") ++
-        "(" ++ show l1 ++ "-" ++ show l2 ++ "):\n" ++
-        indent 2 s
-
     execute s = case Bash.interpret s emptyEnv of
-        Nothing -> failTest "execution failed"
+        Nothing -> fail "execution failed"
         Just e  -> return e
 
 diff :: Map String (Value String) -> Map String (Value String) -> String
@@ -144,7 +121,8 @@ prepareTests = do
     when (null cases) $ do
         hPutStrLn stderr "error: no test cases found"
         exitFailure
-    return $ testGroup "tests" (map testFile cases)
+    tests <- mapM testFile cases
+    return $ testGroup "tests" tests
 
 main :: IO ()
 main = do
