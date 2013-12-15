@@ -13,6 +13,7 @@ import Control.Monad.Trans
 import Data.Maybe
 import Text.Parsec         hiding ((<|>))
 
+import Bash.Config.Lexer
 import Bash.Config.Types
 import Bash.Config.Word
 
@@ -52,7 +53,7 @@ ifsValue = valueString <$> value "IFS" <|> pure " \t\n"
 -- | Brace expand a word.
 -- TODO: {x..y}
 braceExpand :: Word -> [Word]
-braceExpand = go
+braceExpand = map reinterpret . go
   where
     go w = case brace w of
         Nothing -> [w]
@@ -62,14 +63,18 @@ braceExpand = go
         (preamble, w')     <- breakOn (Char '{') w
         (amble, postamble) <- breakOn (Char '}') w'
         let as = expandAmble amble
-            bs = braceExpand postamble
+            bs = go postamble
         return [preamble ++ a ++ b | a <- as, b <- bs]
 
-    expandAmble = concatAmble . map braceExpand . splitOn (Char ',')
+    expandAmble = concatAmble . map go . splitOn (Char ',')
 
     concatAmble []   = ["{}"]
     concatAmble [xs] = map (\s -> "{" ++ s ++ "}") xs
     concatAmble xss  = concat xss
+
+    reinterpret w = case parse word "" (toString w) of
+        Left  _  -> w
+        Right w' -> w'
 
 -- | Fail if a tilde expansion should be performed.
 tildeExpand :: Word -> Bash Word
@@ -87,8 +92,8 @@ expansion s = runParserT (brace <* eof) () s s >>= \case
         <|> parameter
 
     parameter = do
-        name <- many1 (alphaNum <|> char '_')
-        fromValue <$> lift (value name)
+        n <- name
+        fromValue <$> lift (value n)
       where
         fromValue (Value v)     = v
         fromValue (Array (v:_)) = v
@@ -113,7 +118,7 @@ splitWord w = do
     ifs <- ifsValue
     let isSep (Char c) | c `elem` ifs = True
         isSep _                       = False
-    return (splitBy isSep w)
+    return $ filter (not . null) (splitBy isSep w)
 
 -- | Fail if a filename expansion should be performed.
 filenameExpand :: Word -> Bash Word
@@ -140,7 +145,6 @@ expandWordList = return . concatMap braceExpand
              >=> mapM expand
              >=> concatMapM splitWord
              >=> mapM filenameExpand
-             >=> return . filter (not . null)
              >=> return . map unquote
 
 -- | Expand a 'Value'.

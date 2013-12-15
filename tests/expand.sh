@@ -1,4 +1,13 @@
 ### Brace expansion
+foo=bar
+var1=( /usr/{ucb/{ex,edit},lib/{ex,how_ex}} )
+var2=( {,$}foo )
+###
+foo=bar
+var1=(/usr/ucb/ex /usr/ucb/edit /usr/lib/ex /usr/lib/how_ex)
+var2=(foo bar)
+
+### Sequence expansion
 var1=( a{c,b,d}e )
 var2=( {a..e} )
 var3=( {01..10..2} )
