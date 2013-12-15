@@ -201,6 +201,10 @@ compoundList = List <$ newlineList <*> list
                <|> Or  p <$ operator "||" <* newlineList <*> andOr
         rest <|> pure (Last p)
 
+-- | Parse a possible empty compound list of commands.
+inputList :: Parser List
+inputList = newlineList *> option (List []) compoundList
+
 -- | Parse a command group, wrapped either in braces or in a @do...done@ block.
 doGroup :: Parser List
 doGroup = word "do" *> compoundList <* word "done"
@@ -232,18 +236,15 @@ caseCommand = Case <$ word "case"
   where
     clauses = [] <$ word "esac"
           <|> do p <- pattern
-                 c <- clauseCommand
+                 c <- inputList
                  nextClause (CaseClause p c)
 
     nextClause f = (:) <$> (f <$> clauseTerm) <* newlineList <*> clauses
-                 <|> [f Break] <$ newlineList <* word "esac"
+               <|> [f Break] <$ newlineList <* word "esac"
 
     pattern = optional (operator "(")
            *> anyWord `sepBy` operator "|"
            <* operator ")"
-
-    clauseCommand = compoundList
-                <|> List [] <$ newlineList
 
     clauseTerm = Break       <$ operator ";;"
              <|> FallThrough <$ operator ";&"
@@ -378,4 +379,4 @@ command = baseCommand <* redirList
 
 -- | Parse an entire script (e.g. a file) as a list of commands.
 script :: Parser Script
-script = Script <$ newlineList <*> option (List []) compoundList <* eof
+script = Script <$> inputList <* eof
