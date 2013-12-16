@@ -29,6 +29,10 @@ features cause the interpreter to fail.
 * Function definitions
 * Function execution
 
+### Partially implemented
+* Assignment builtins `alias`, `declare`, `export`,
+  `local`, `readonly`, and `typeset`. Implementations are currently unsafe.
+
 ### Unimplemented
 * Special and positional parameters
 * External commands
@@ -42,4 +46,4 @@ features cause the interpreter to fail.
 * Case commands
 
 ### Unsafe
-* Builtins `exit`, `return`, `source`, `.`, `declare`, etc.
+* Builtins `exit`, `return`, `source`, `.`, etc.
