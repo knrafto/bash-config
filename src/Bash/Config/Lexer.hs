@@ -1,7 +1,6 @@
 {-# LANGUAGE
     FlexibleContexts
   , FlexibleInstances
-  , LambdaCase
   , MultiParamTypeClasses
   , OverloadedStrings
   #-}
@@ -29,14 +28,13 @@ module Bash.Config.Lexer
     , queueHeredoc
     ) where
 
-import Prelude                hiding (span)
+import Prelude                hiding (span, takeWhile)
 
 import Control.Applicative
 import Control.Monad
 import Data.Char
 import Data.Functor.Identity
-import Data.List              hiding (span)
-import Data.Maybe
+import Data.List              hiding (span, takeWhile)
 import Text.Parsec.Char       hiding (newline)
 import Text.Parsec.Combinator hiding (optional)
 import Text.Parsec.Prim       hiding ((<|>), many)
@@ -76,7 +74,7 @@ data TokenMode
 
 -- | Convert a token to the string it represents.
 showToken :: Token -> String
-showToken = \case
+showToken t = case t of
     TWord s     -> toString s
     TOperator s -> s
     TNumber i   -> show i
@@ -90,7 +88,7 @@ showToken = \case
 
     showValue v = case fmap toString v of
         Value s -> s
-        Array a -> "(" ++ intercalate " " a ++ ")"
+        Array a -> "(" ++ unwords a ++ ")"
 
 -------------------------------------------------------------------------------
 -- Special tokens
@@ -139,7 +137,7 @@ newtype LexerState = LexerState
       heredocs :: [String]
     }
 
--- | Parsec's state.
+-- | Parsec state.
 type ParsecState = State String LexerState
 
 -- | Construct a new lexer state.
@@ -165,12 +163,8 @@ runLexer m s = case reply of
         Empty a    -> a
 
 -------------------------------------------------------------------------------
--- Basic Bash lexers
+-- Combinators
 -------------------------------------------------------------------------------
-
--- | A flipped version of `(<$>)`.
-(<&>) :: Functor f => f a -> (a -> b) -> f b
-(<&>) = flip fmap
 
 -- | Ensure that a lexer's output is nonempty.
 nonempty :: MonadPlus m => m [a] -> m [a]
@@ -180,25 +174,43 @@ nonempty m = m >>= \xs -> if null xs then mzero else return xs
 upTo :: Alternative f => Int -> f a -> f [a]
 upTo m p = go m
   where
-    go n | n <= 0    = pure []
+    go n | n < 0     = empty
+         | n == 0    = pure []
          | otherwise = (:) <$> p <*> go (n - 1) <|> pure []
 
 -- | @upTo1 n p@ parses one to @n@ occurences of @p@.
 upTo1 :: Alternative f => Int -> f a -> f [a]
 upTo1 n p = (:) <$> p <*> upTo (n - 1) p
 
+-- | @surroundBy p sep@ parses zero or more occurences of @p@, beginning,
+-- ending, and separated by @sep@.
+surroundBy
+    :: Stream s m Char
+    => ParsecT s u m a
+    -> ParsecT s u m sep
+    -> ParsecT s u m [a]
+surroundBy p sep = sep *> endBy p sep
+
+-- | Take input while a predicate is satisfied.
+takeWhile :: Stream s m Char => (Char -> Bool) -> ParsecT s u m String
+takeWhile = many . satisfy
+
+-------------------------------------------------------------------------------
+-- Basic Bash lexers
+-------------------------------------------------------------------------------
+
 -- | Take a line of characters from the source, stripping the trailing
 -- newline (if any). Fails if there is no input left.
 takeLine :: Stream s m Char => ParsecT s u m String
-takeLine = lookAhead anyChar
-        *> many (satisfy (/= '\n')) <* optional (char '\n')
+takeLine = lookAhead anyChar *> takeWhile (/= '\n') <* optional (char '\n')
 
 -- | Skip spaces, tabs, and comments.
 skipSpace :: Stream s m Char => ParsecT s u m ()
-skipSpace = () <$ skipMany spaceChar <* optional comment
+skipSpace = skipMany spaceChar <* optional comment
   where
-    spaceChar = '\n' <$ try (string "\\\n") <|> oneOf " \t"
-    comment   = char '#' *> skipMany (satisfy (/= '\n'))
+    comment   = () <$ char '#' <* takeWhile (/= '\n')
+    spaceChar = () <$ try (string "\\\n")
+            <|> () <$ oneOf " \t"
 
 -- | Lex a newline, and skip any following heredocs.
 newline :: Lexer String
@@ -213,9 +225,9 @@ newline = do
 skipHeredoc :: Stream s m Char => String -> ParsecT s u m ()
 skipHeredoc h = go
   where
-    go = optional takeLine >>= \case
-        Just l | dropWhile (== '\t') l /= h -> go
-        _                                   -> return ()
+    go = do
+        l <- takeLine
+        unless (dropWhile (== '\t') l == h) go
 
 -- | Parse an arithmetic expression.
 arith :: Stream s m Char => ParsecT s u m String
@@ -311,12 +323,9 @@ word = many bare
        <|> try processSubst
        <|> Char <$> noneOf metachars
 
-    escape = Escape <$ char '\\' <*> anyChar
-
-    single = Single <$> span '\'' '\'' empty
-
-    double = Double <$> span '\"' '\"' (escape <|> backquote <|> dollar)
-
+    escape    = Escape <$ char '\\' <*> anyChar
+    single    = Single <$> span '\'' '\'' empty
+    double    = Double <$> span '\"' '\"' (escape <|> backquote <|> dollar)
     backquote = Backquote <$> span '`'  '`'  escape
 
     specialQuote = char '$' *> rest
@@ -380,7 +389,8 @@ lexNormal = normalWord
     normalWord = do
         w <- nonempty word
         let s = toString w
-        optional (lookAhead anyChar) <&> \case
+        next <- optional (lookAhead anyChar)
+        return $ case next of
             Just c | c `elem` "<>" && all isDigit s -> TNumber (read s)
             _                                       -> TWord w
 
@@ -396,17 +406,19 @@ lexAssign = TAssign <$> assign
       where
         wrap s = "[" ++ s ++ "]"
 
-    assignOp = operator ["=", "+="] <&> \case
-        "="  -> Equals
-        "+=" -> PlusEquals
-        _    -> error "Bash.Lexer.lexAssign: unknown operator"
+    assignOp = do
+        op <- operator ["=", "+="]
+        return $ case op of
+            "="  -> Equals
+            "+=" -> PlusEquals
+            _    -> error "Bash.Lexer.lexAssign: unknown operator"
 
     rhs = Array <$  char '(' <*> arrayElems <* char ')'
       <|> Value <$> word
 
-    arrayElems = skipArraySpace >> many (nonempty word <* skipArraySpace)
+    arrayElems = nonempty word `surroundBy` skipArraySpace
 
-    skipArraySpace = skipSpace >> (char '\n' *> skipArraySpace <|> return ())
+    skipArraySpace = char '\n' `surroundBy` skipSpace
 
 -- | Lex a token in arithmetic mode. This lexes an arithmetic expression up
 -- to and including the trailing @))@.
@@ -440,7 +452,7 @@ toTokens s mode = Tokens
     , nextToken  = next
     }
   where
-    s'   = fromMaybe s . fmap snd $ runLexer skipSpace s
+    s'   = maybe s snd $ runLexer skipSpace s
     next = case runLexer (lexBash mode) s' of
         Just (t, s'') -> Just (t, toTokens s'' mode)
         _             -> Nothing
