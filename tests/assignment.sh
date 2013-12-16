@@ -36,3 +36,10 @@ _0z=foo
 var=foo var+=bar
 ###
 var=foobar
+
+### Assignment builtins
+export var1=foo
+export var2=(foo bar)
+###
+var1=foo
+var2=(foo bar)

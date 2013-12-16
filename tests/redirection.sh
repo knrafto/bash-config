@@ -1,8 +1,10 @@
 ### Basic redirections
 cat < /dev/null
 [ "foo" != "bar" ] && var1=pass
+< out.txt true && var2=pass
 ###
 var1=pass
+var2=pass
 
 ### Redirection numbers
 test "foo" != "bar" 15>/dev/null && var1=pass
