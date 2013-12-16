@@ -31,7 +31,7 @@ data Span
     | ProcessSubst Char Word
     | Paren Word
     | Comment String
-    deriving (Eq, Show)
+    deriving (Eq, Ord, Show)
 
 instance Data.String.IsString Word where
     fromString = fromString

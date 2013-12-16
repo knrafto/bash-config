@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase, TemplateHaskell #-}
+{-# LANGUAGE LambdaCase, OverloadedStrings #-}
 -- | Bash script evaluation.
 module Bash.Config.Eval
     ( Eval(..)
@@ -36,6 +36,34 @@ subshell a = do
     put env
     return r
 
+-- | Execute an assignment builtin.
+assignBuiltin :: Word -> [Either Word Assign] -> Bash ExitStatus
+assignBuiltin b args = Nothing <$ case Map.lookup b assignBuiltins of
+    Nothing -> return ()
+    Just f  -> mapM_ f args
+  where
+    assignBuiltins = Map.fromList $
+        [ ("alias"   , \_ -> return ())
+        , ("declare" , perform )
+        , ("export"  , perform )
+        , ("local"   , unassign)
+        , ("readonly", unassign)
+        , ("typeset" , perform )
+        ]
+
+    perform (Left  _) = return ()
+    perform (Right a) = () <$ eval a
+
+    unassign (Left w)               = unset (toString w)
+    unassign (Right (Assign n _ _)) = unset n
+
+-- | Execute a simple command.
+simpleCommand :: [Assign] -> [Word] -> Bash ExitStatus
+simpleCommand as ws = optional (expandWordList ws) >>= \case
+    Nothing       -> return Nothing
+    Just []       -> eval as
+    Just (c:args) -> command c args
+
 -- | Execute a simple command.
 command :: String -> [String] -> Bash ExitStatus
 command name args = do
@@ -59,7 +87,8 @@ functionDef w f = Just True <$ define name f
 -- The implemented builtins are @test@, @[@, @true@, and @false@. Most shell
 -- builtins are assumed to have unpredictable effects and will cause the
 -- interpreter to fail. However, some shell builtins, such as
--- @break@, @continue@, @pwd@, etc. are assumed to be safe.
+-- @break@, @continue@, @pwd@, etc. are assumed to be safe. Builtins that
+-- could take an assignment as a parameter are implemented separately.
 builtins :: Map String ([String] -> Bash ExitStatus)
 builtins = Map.fromList $
     -- implemented builtins
@@ -70,10 +99,9 @@ builtins = Map.fromList $
     ]
     -- unsafe builtins
     ++ map (\name -> (name, \_ -> unimplemented name))
-        [ ".", "alias", "builtin", "caller", "declare", "enable", "exec"
-        , "exit", "export", "let", "local", "logout", "mapfile", "read"
-        , "readarray", "readonly", "return", "source", "trap", "typeset"
-        , "unset", "unalias"
+        [ ".", "builtin", "caller", "enable", "exec", "exit", "let"
+        , "logout", "mapfile", "read", "readarray", "return", "source"
+        , "trap", "unset", "unalias"
         ]
 
 -- | Executable commands.
@@ -117,11 +145,10 @@ instance Eval Pipeline where
         bang   = if b then invert else id
         invert = fmap (fmap not)
 
-instance Eval SimpleCommand where
-    eval (SimpleCommand as ws) = optional (expandWordList ws) >>= \case
-        Nothing       -> return Nothing
-        Just []       -> eval as
-        Just (c:args) -> command c args
+instance Eval AssignCommand where
+    eval (AssignCommand as c) = case c of
+        AssignBuiltin b ws -> assignBuiltin b ws
+        SimpleCommand ws   -> simpleCommand as ws
 
 instance Eval Assign where
     eval (Assign name op a) = Just True <$ (assign name =<< expandValue a)

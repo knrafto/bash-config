@@ -162,7 +162,7 @@ redir = optional number
 redirList :: Parser ()
 redirList = skipMany redir
 
--- | Parse a simple command part.
+-- | Parse a part of a command.
 commandPart :: Parser a -> Parser [a]
 commandPart p = go
   where
@@ -170,17 +170,34 @@ commandPart p = go
      <|> redir *> go
      <|> return []
 
+-- | Parse one of more command parts.
+commandPart1 :: Parser a -> Parser [a]
+commandPart1 p = P.try go
+  where
+    go = (:) <$> p <*> commandPart p
+     <|> redir *> go
+
 -- | Parse a simple command beginning with the given word.
 simpleCommand :: Word -> Parser SimpleCommand
-simpleCommand w = SimpleCommand [] . (w :) <$> commandPart anyWord
+simpleCommand w = assignBuiltin w
+              <|> SimpleCommand . (w:) <$> commandPart anyWord
+
+-- | Parse an assignment builtins.
+assignBuiltin :: Word -> Parser SimpleCommand
+assignBuiltin w = do
+    guard (w `elem` builtins)
+    AssignBuiltin w <$> commandPart arg
+  where
+    arg = Left  <$> anyWord
+      <|> Right <$> assign
+
+    builtins = ["alias", "declare", "export", "local", "readonly", "typeset"]
 
 -- | Parse a simple command that begins with an assignment.
-assignCommand :: Parser SimpleCommand
-assignCommand =
-    SimpleCommand <$> commandPart1 assign <*> commandPart anyWord
+assignCommand :: Parser AssignCommand
+assignCommand = AssignCommand <$> commandPart1 assign <*> rest
   where
-    commandPart1 p = (:) <$> p <*> commandPart p
-                 <|> redir *> commandPart1 p
+    rest = option (SimpleCommand []) (simpleCommand =<< anyWord)
 
 -------------------------------------------------------------------------------
 -- Lists
@@ -343,11 +360,10 @@ coproc = word "coproc" *> coprocCommand
   where
     coprocCommand = Simple <$> assignCommand
                 <|> Shell <$> shellCommand
-                <|> namedCommand
+                <|> (namedCommand =<< unreservedWord)
 
-    namedCommand = do
-        w <- unreservedWord
-        Shell <$> shellCommand <|> Simple <$> simpleCommand w
+    namedCommand w = Shell <$> shellCommand
+                 <|> Simple . AssignCommand [] <$> simpleCommand w
 
 -------------------------------------------------------------------------------
 -- Function definitions
@@ -385,11 +401,10 @@ command = baseCommand <* redirList
               <|> Coproc <$  coproc
               <|> Shell  <$> shellCommand <* redirList
               <|> functionDef1
-              <|> namedCommand
+              <|> (namedCommand =<< unreservedWord)
 
-    namedCommand = do
-        w <- unreservedWord
-        functionDef2 w <|> Simple <$> simpleCommand w
+    namedCommand w = functionDef2 w
+                 <|> Simple . AssignCommand [] <$> simpleCommand w
 
 -- | Parse an entire script (e.g. a file) as a list of commands.
 script :: Parser Script
