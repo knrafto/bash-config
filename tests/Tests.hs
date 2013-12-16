@@ -7,8 +7,9 @@
 module Main ( main ) where
 
 import           Control.Applicative
+import           Control.Exception
 import           Control.Monad
-import           Control.Monad.Trans
+import           Control.Monad.IO.Class
 import           Data.Char
 import           Data.List
 import           Data.Map               (Map)
@@ -23,7 +24,7 @@ import           Test.Tasty.Providers
 import           Text.Parsec.Combinator hiding (optional)
 import           Text.Parsec.Error
 import           Text.Parsec.Pos
-import           Text.Parsec.Prim       hiding ((<|>), parseTest)
+import           Text.Parsec.Prim       hiding ((<|>), parseTest, try)
 
 import           Bash.Config            hiding (parse, interpret)
 import qualified Bash.Config            as Bash (parse, interpret)
@@ -37,11 +38,23 @@ instance IsTest TestPair where
     run _ p _   = runTest p
     testOptions = return []
 
+newtype FailedTest = FailedTest String
+    deriving (Show, Typeable)
+
+instance IsTest FailedTest where
+    run _ (FailedTest msg) _ = return (Result False msg)
+    testOptions              = return []
+
+instance Exception FailedTest
+
+failTest :: MonadIO m => String -> m a
+failTest = liftIO . throwIO . FailedTest
+
 parseTest :: FilePath -> IO [TestPair]
 parseTest file = do
     ls <- lines <$> readFile file
     runParserT (many1 pair <* eof) () file ls >>= \case
-        Left  _  -> fail $ file ++ ": parse failed"
+        Left  e  -> failTest (show e)
         Right ps -> return ps
   where
     satisfy p = tokenPrim id updatePos test
@@ -68,8 +81,7 @@ parseTest file = do
         offset <- subtract 1 <$> lineNumber
         ls <- many1 testLine
         case Bash.parse file (unlines ls) of
-            Left  e -> do lift . print $ incParseErrorLine offset e
-                          mzero
+            Left  e -> failTest . show $ incParseErrorLine offset e
             Right s -> return (name, s)
 
     incParseErrorLine offset e =
@@ -84,8 +96,10 @@ testPair p@(TestPair heading _ _) = singleTest (showHeading heading) p
 
 testFile :: FilePath -> IO TestTree
 testFile file = do
-    ps <- parseTest file
-    return $ testGroup file (map testPair ps)
+    eps <- try (parseTest file)
+    return $ case eps of
+        Left e   -> singleTest file (e :: FailedTest)
+        Right ps -> testGroup file (map testPair ps)
 
 runTest :: TestPair -> IO Result
 runTest (TestPair _ s1 s2) = do
