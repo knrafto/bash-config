@@ -63,7 +63,7 @@ eval = \case
 -- Parsing
 -------------------------------------------------------------------------------
 
--- | A parser over lists of strings.
+-- | A parser over lists of tokens.
 type Parser t = ParsecT [t] () Identity
 
 -- | Parse a primitive token satisfying a predicate.
@@ -118,6 +118,7 @@ condExpr = expr <* eof
 
 -- | Evaluate the @test@ builtin.
 test :: [String] -> ExitStatus
+test [] = Just False
 test ss = case parse condExpr "" ss of
     Left  _ -> Just False
     Right e -> eval e
