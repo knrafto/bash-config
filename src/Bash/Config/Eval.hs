@@ -37,7 +37,7 @@ subshell a = do
     return r
 
 -- | Execute an assignment builtin.
-assignBuiltin :: Word -> [Either Word Assign] -> Bash ExitStatus
+assignBuiltin :: Word -> [Either Assign Word] -> Bash ExitStatus
 assignBuiltin b args = Nothing <$ case Map.lookup b assignBuiltins of
     Nothing -> return ()
     Just f  -> mapM_ f args
@@ -51,18 +51,11 @@ assignBuiltin b args = Nothing <$ case Map.lookup b assignBuiltins of
         , ("typeset" , perform )
         ]
 
-    perform (Left  _) = return ()
-    perform (Right a) = () <$ eval a
+    perform (Left a) = () <$ eval a
+    perform _        = return ()
 
-    unassign (Left w)               = unset (toString w)
-    unassign (Right (Assign n _ _)) = unset n
-
--- | Execute a simple command.
-simpleCommand :: [Assign] -> [Word] -> Bash ExitStatus
-simpleCommand as ws = optional (expandWordList ws) >>= \case
-    Nothing       -> return Nothing
-    Just []       -> eval as
-    Just (c:args) -> command c args
+    unassign (Left (Assign n _ _)) = unset n
+    unassign (Right w)             = unset (toString w)
 
 -- | Execute a simple command.
 command :: String -> [String] -> Bash ExitStatus
@@ -145,10 +138,12 @@ instance Eval Pipeline where
         bang   = if b then invert else id
         invert = fmap (fmap not)
 
-instance Eval AssignCommand where
-    eval (AssignCommand as c) = case c of
-        AssignBuiltin b ws -> assignBuiltin b ws
-        SimpleCommand ws   -> simpleCommand as ws
+instance Eval SimpleCommand where
+    eval (SimpleCommand as ws)  = optional (expandWordList ws) >>= \case
+        Nothing       -> return Nothing
+        Just []       -> eval as
+        Just (c:args) -> command c args
+    eval (AssignCommand b args) = assignBuiltin b args
 
 instance Eval Assign where
     eval (Assign name op a) = Just True <$ (assign name =<< expandValue a)

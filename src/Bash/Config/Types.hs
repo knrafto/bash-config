@@ -28,7 +28,6 @@ module Bash.Config.Types
     , AndOr(..)
     , Pipeline(..)
       -- ** Simple commands
-    , AssignCommand(..)
     , SimpleCommand(..)
     , Assign(..)
     , AssignOp(..)
@@ -192,7 +191,7 @@ newtype Script = Script List
 
 -- | A Bash command.
 data Command
-    = Simple AssignCommand
+    = Simple SimpleCommand
     | Shell ShellCommand
     | FunctionDef Word Function
     | Coproc
@@ -214,13 +213,9 @@ data Pipeline = Pipeline Bool [Command]
     deriving (Eq)
 
 -- | A simple command preceded by assignments.
-data AssignCommand = AssignCommand [Assign] SimpleCommand
-    deriving (Eq)
-
--- | A simple command.
 data SimpleCommand
-    = SimpleCommand [Word]
-    | AssignBuiltin Word [Either Word Assign]
+    = SimpleCommand [Assign] [Word]
+    | AssignCommand Word [Either Assign Word]
     deriving (Eq)
 
 -- | An assignment word.

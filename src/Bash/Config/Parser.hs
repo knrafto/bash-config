@@ -11,10 +11,11 @@ module Bash.Config.Parser
 import           Control.Applicative    hiding (optional, many)
 import           Control.Monad.Identity
 import           Data.Char
-import           Text.Parsec.Combinator hiding (anyToken, eof)
+import           Data.Maybe
+import           Text.Parsec.Combinator hiding (anyToken, eof, notFollowedBy)
 import           Text.Parsec.Error      (ParseError)
 import           Text.Parsec.Pos
-import           Text.Parsec.Prim       (ParsecT, skipMany, many)
+import           Text.Parsec.Prim       (ParsecT, skipMany, many, try)
 import qualified Text.Parsec.Prim       as P
 
 import           Bash.Config.Expand
@@ -69,6 +70,12 @@ anyWord  = token $ \case
     TWord w -> Just w
     _       -> Nothing
 
+-- | Parse a reserved word.
+reservedWord :: Parser Word
+reservedWord = token $ \case
+    TWord w | w `elem` reservedWords -> Just w
+    _                                -> Nothing
+
 -- | Parse a word that is not a reserved word.
 unreservedWord :: Parser Word
 unreservedWord = token $ \case
@@ -122,13 +129,17 @@ arith = withMode ArithMode $ token $ \case
 needHeredoc :: String -> Parser ()
 needHeredoc = modifyInput . queueHeredoc
 
+-- | @notFollowedBy p@ succeeds if parser @p@ fails.
+notFollowedBy :: Parser Token -> Parser ()
+notFollowedBy p = try (more <|> return ())
+  where
+    more = do
+        t <- p
+        P.unexpected (showToken t)
+
 -- | Parse the end of a file.
 eof :: Parser ()
-eof = P.try (moreTokens <|> return ())
-  where
-    moreTokens = do
-        t <- anyToken
-        P.unexpected (showToken t)
+eof = notFollowedBy anyToken
 
 -------------------------------------------------------------------------------
 -- Basic parsers
@@ -162,42 +173,40 @@ redir = optional number
 redirList :: Parser ()
 redirList = skipMany redir
 
--- | Parse a part of a command.
-commandPart :: Parser a -> Parser [a]
-commandPart p = go
+-- | Parse part of a command.
+commandParts :: Parser a -> Parser [a]
+commandParts p = catMaybes <$> many part
   where
-    go = (:) <$> p <*> go
-     <|> redir *> go
-     <|> return []
+    part = Just    <$> p
+       <|> Nothing <$  redir
 
--- | Parse one of more command parts.
-commandPart1 :: Parser a -> Parser [a]
-commandPart1 p = P.try go
+-- | Parse an assignment command.
+assignCommand :: Parser SimpleCommand
+assignCommand = AssignCommand <$> assignBuiltin <* flags <*> commandParts arg
   where
-    go = (:) <$> p <*> commandPart p
-     <|> redir *> go
+    arg = Left  <$> assign
+      <|> Right <$> anyWord
 
--- | Parse a simple command beginning with the given word.
-simpleCommand :: Word -> Parser SimpleCommand
-simpleCommand w = assignBuiltin w
-              <|> SimpleCommand . (w:) <$> commandPart anyWord
+    assignBuiltin = try $ do
+        w <- anyWord
+        guard (w `elem` assignBuiltins)
+        return w
 
--- | Parse an assignment builtins.
-assignBuiltin :: Word -> Parser SimpleCommand
-assignBuiltin w = do
-    guard (w `elem` builtins)
-    AssignBuiltin w <$> commandPart arg
+    assignBuiltins = [ "alias", "declare", "export"
+                     , "local", "readonly", "typeset"
+                     ]
+
+-- | Parse a simple command.
+simpleCommand :: Parser SimpleCommand
+simpleCommand = do
+    notFollowedBy (TWord <$> reservedWord)
+    as <- commandParts assign
+    assignCommand <|> simple as
   where
-    arg = Left  <$> anyWord
-      <|> Right <$> assign
-
-    builtins = ["alias", "declare", "export", "local", "readonly", "typeset"]
-
--- | Parse a simple command that begins with an assignment.
-assignCommand :: Parser AssignCommand
-assignCommand = AssignCommand <$> commandPart1 assign <*> rest
-  where
-    rest = option (SimpleCommand []) (simpleCommand =<< anyWord)
+    simple as = do
+        ws <- commandParts anyWord
+        guard (not $ null as && null ws)
+        return (SimpleCommand as ws)
 
 -------------------------------------------------------------------------------
 -- Lists
@@ -358,36 +367,30 @@ condCommand = Cond <$ word "[[" <*> go
 coproc :: Parser Command
 coproc = word "coproc" *> coprocCommand
   where
-    coprocCommand = Simple <$> assignCommand
+    coprocCommand = try namedCommand
                 <|> Shell <$> shellCommand
-                <|> (namedCommand =<< unreservedWord)
+                <|> Simple <$> simpleCommand
 
-    namedCommand w = Shell <$> shellCommand
-                 <|> Simple . AssignCommand [] <$> simpleCommand w
+    namedCommand = Shell <$ unreservedWord <*> shellCommand
 
 -------------------------------------------------------------------------------
 -- Function definitions
 -------------------------------------------------------------------------------
 
--- | Parse a pair of function parentheses @()@.
-functionParens :: Parser ()
-functionParens = () <$ operator "(" <* operator ")"
+-- | Parse a function definition.
+functionDef :: Parser Command
+functionDef = functionDef1
+          <|> try functionDef2
+  where
+    functionDef1 = FunctionDef <$ word "function" <*> anyWord
+                <* optional functionParens <*> functionBody
 
--- | Parse a function body.
-functionBody :: Parser Function
-functionBody = Function <$ newlineList <*> shellCommand <* redirList
+    functionDef2 = FunctionDef <$> unreservedWord
+                <* functionParens <*> functionBody
 
--- | Parse a function definition beginning with the keyword @function@.
-functionDef1 :: Parser Command
-functionDef1 = FunctionDef
-           <$  word "function"
-           <*> anyWord
-           <*  optional functionParens
-           <*> functionBody
+    functionParens = () <$ operator "(" <* operator ")"
 
--- | Parse a function definition beginning with the given name.
-functionDef2 :: Word -> Parser Command
-functionDef2 w = FunctionDef w <$ functionParens <*> functionBody
+    functionBody = Function <$ newlineList <*> shellCommand <* redirList
 
 -------------------------------------------------------------------------------
 -- Commands
@@ -395,16 +398,10 @@ functionDef2 w = FunctionDef w <$ functionParens <*> functionBody
 
 -- | Parse a single command.
 command :: Parser Command
-command = baseCommand <* redirList
-  where
-    baseCommand = Simple <$> assignCommand
-              <|> Coproc <$  coproc
-              <|> Shell  <$> shellCommand <* redirList
-              <|> functionDef1
-              <|> (namedCommand =<< unreservedWord)
-
-    namedCommand w = functionDef2 w
-                 <|> Simple . AssignCommand [] <$> simpleCommand w
+command = Shell  <$> shellCommand <* redirList
+      <|> Coproc <$  coproc       <* redirList
+      <|> functionDef             <* redirList
+      <|> Simple <$> simpleCommand
 
 -- | Parse an entire script (e.g. a file) as a list of commands.
 script :: Parser Script
