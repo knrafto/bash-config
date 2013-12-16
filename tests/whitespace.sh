@@ -3,7 +3,8 @@ var1=foo # ; var2=bar
 ###
 var1=foo
 
-### Leading whitespace (including a tab)
+### Leading whitespace
+# tab
     	var=foo
 ###
 var=foo
