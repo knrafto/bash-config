@@ -20,23 +20,6 @@ module Bash.Config.Types
       -- ** Functions
     , define
     , undefine
-      -- * Commands
-    , Script(..)
-    , Command(..)
-      -- ** Lists
-    , List(..)
-    , AndOr(..)
-    , Pipeline(..)
-      -- ** Simple commands
-    , SimpleCommand(..)
-    , Assign(..)
-    , AssignOp(..)
-      -- ** Functions
-    , Function(..)
-      -- ** Shell commands
-    , ShellCommand(..)
-    , CaseClause(..)
-    , CaseTerm(..)
     ) where
 
 import           Control.Applicative
@@ -45,8 +28,6 @@ import           Control.Monad.Reader.Class
 import           Control.Monad.State.Class
 import           Data.Map                   (Map)
 import qualified Data.Map                   as Map
-
-import           Bash.Config.Word
 
 -------------------------------------------------------------------------------
 -- Environments
@@ -180,80 +161,3 @@ define name body = whenClean name $ modifyFunctions (Map.insert name body)
 -- | Undefine a shell function.
 undefine :: String -> Bash ()
 undefine name = modifyFunctions (Map.delete name)
-
--------------------------------------------------------------------------------
--- Commands
--------------------------------------------------------------------------------
-
--- | A Bash script.
-newtype Script = Script List
-    deriving (Eq)
-
--- | A Bash command.
-data Command
-    = Simple SimpleCommand
-    | Shell ShellCommand
-    | FunctionDef Word Function
-    | Coproc
-    deriving (Eq)
-
--- | A compound list of statements, terminated by @&@ or @;@.
-newtype List = List [AndOr]
-    deriving (Eq)
-
--- | A list of pipelines separated by @&&@ and @||@.
-data AndOr
-    = Last Pipeline
-    | And Pipeline AndOr
-    | Or Pipeline AndOr
-    deriving (Eq)
-
--- | A (possibly inverted) pipeline, linked with @|@ or @|&@.
-data Pipeline = Pipeline Bool [Command]
-    deriving (Eq)
-
--- | A simple command preceded by assignments.
-data SimpleCommand
-    = SimpleCommand [Assign] [Word]
-    | AssignCommand Word [Either Assign Word]
-    deriving (Eq)
-
--- | An assignment word.
-data Assign = Assign String AssignOp (Value Word)
-    deriving (Eq)
-
--- | An assignment operator (@=@ or @+=@).
-data AssignOp = Equals | PlusEquals
-    deriving (Eq)
-
--- | A function.
-newtype Function = Function ShellCommand
-    deriving (Eq)
-
--- | A compound command.
-data ShellCommand
-    = Subshell List
-    | Group List
-    | Arith String
-    | Cond [Word]
-    | For Word [Word] List
-    | ArithFor String List
-    | Select Word [Word] List
-    | Case Word [CaseClause]
-    | If List List List
-    | Until List List
-    | While List List
-    deriving (Eq)
-
--- | A single case clause.
-data CaseClause = CaseClause [Word] List CaseTerm
-    deriving (Eq)
-
--- | A case clause terminator. A clause can either 'Break' out of the case
--- statement with @;;@, 'FallThrough' to the next clause with @;&@, or
--- 'Continue' by testing the pattern for the next clause with @;;&@.
-data CaseTerm
-    = Break
-    | FallThrough
-    | Continue
-    deriving (Eq)
