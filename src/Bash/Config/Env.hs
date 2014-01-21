@@ -3,9 +3,13 @@
 -- This does not fully represent parts that
 -- aren't interpreted, such as redirections or arithmetic expressions.
 module Bash.Config.Types
-    ( -- * Environments
-      Env(..)
-    , Value(..)
+    (
+      -- * Values
+      Value(..)
+    , Array
+    , toArray
+      -- * Environments
+    , Env(..)
     , emptyEnv
       -- ** Execution
     , ExitStatus
@@ -26,8 +30,27 @@ import           Control.Applicative
 import           Control.Monad
 import           Control.Monad.Reader.Class
 import           Control.Monad.State.Class
+import           Data.IntMap                (IntMap)
+import qualified Data.IntMap                as IntMap
 import           Data.Map                   (Map)
 import qualified Data.Map                   as Map
+import           Language.Bash.Syntax
+
+-------------------------------------------------------------------------------
+-- Values
+-------------------------------------------------------------------------------
+
+-- | A Bash value
+data Value = Value String | Array Array
+    deriving (Eq, Ord, Read, Show)
+
+-- | A Bash array.
+type Array = IntMap String
+
+-- | Coerce a value to an array.
+toArray :: Value -> Array
+toArray (Value v) = IntMap.singleton 0 v
+toArray (Array a) = a
 
 -------------------------------------------------------------------------------
 -- Environments
@@ -36,14 +59,10 @@ import qualified Data.Map                   as Map
 -- | The execution environment.
 data Env = Env
     { -- | Environment parameters or variables.
-      parameters :: Map String (Value String)
+      parameters :: Map String Value
       -- | Environment functions.
-    , functions  :: Map String Function
+    , functions  :: Map String List
     } deriving (Eq)
-
--- | A Bash value.
-data Value a = Value a | Array [a]
-    deriving (Eq, Ord, Read, Show, Functor)
 
 -- | The empty environment.
 emptyEnv :: Env
@@ -60,11 +79,13 @@ type ExitStatus = Maybe Bool
 -- the execution status will be set to 'Dirty' and execution will proceed
 -- in a safe manner.
 data Status
-    -- | Indeterminate execution.
-    = Dirty
-    -- | Normal execution.
+      -- | Unsafe execution
+    = Unsafe
+      -- | Indeterminate execution.
+    | Dirty
+      -- | Normal execution.
     | Clean
-    deriving (Eq, Ord, Enum, Bounded)
+    deriving (Eq, Ord, Read, Show, Enum, Bounded)
 
 -- | The Bash execution monad.
 newtype Bash a = Bash { runBash :: Status -> Env -> Either String (a, Env) }
@@ -103,11 +124,11 @@ instance MonadState Env Bash where
 unimplemented :: String -> Bash a
 unimplemented = fail
 
--- | Fail with a message if the current execution status is dirty.
+-- | Fail with a message if the current execution status is not 'Clean'.
 whenClean :: String -> Bash a -> Bash a
 whenClean s m = ask >>= \case
-    Dirty -> fail s
     Clean -> m
+    _     -> fail s
 
 -------------------------------------------------------------------------------
 -- Parameters
@@ -121,30 +142,17 @@ modifyParameters f = modify $ \env -> env { parameters = f (parameters env) }
 
 -- | Set a shell parameter. Fails if the current execution status is dirty.
 set :: String -> Value String -> Bash ()
-set name a = whenClean name $ modifyParameters (Map.insert name a)
 
 -- | Add to a shell parameter.
 augment :: String -> Value String -> Bash ()
-augment name b = do
-    a <- value name
-    set name (append a b)
-  where
-    append (Value x ) (Value y ) = Value (x ++ y)
-    append (Value x ) _          = Value x
-    append (Array xs) (Array ys) = Array (xs ++ ys)
-    append (Array xs) (Value y ) = Value $ case xs of
-        []  -> y
-        x:_ -> x ++ y
 
 -- | Unset a shell parameter.
 unset :: String -> Bash ()
 unset name = modifyParameters (Map.delete name)
 
 -- | Get the value of a binding, if it is known.
-value :: String -> Bash (Value String)
-value name = gets (Map.lookup name . parameters) >>= \case
-    Nothing -> fail name
-    Just v  -> return v
+value :: String -> Bash (Maybe Value)
+value name = gets (Map.lookup name . parameters)
 
 -------------------------------------------------------------------------------
 -- Functions
