@@ -1,8 +1,6 @@
-{-# LANGUAGE DeriveFunctor, LambdaCase, MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleContexts #-}
 -- | The Bash execution environment and shell script types.
--- This does not fully represent parts that
--- aren't interpreted, such as redirections or arithmetic expressions.
-module Bash.Config.Types
+module Bash.Config.Env
     (
       -- * Values
       Value(..)
@@ -11,11 +9,10 @@ module Bash.Config.Types
       -- * Environments
     , Env(..)
     , emptyEnv
+    , fromList
       -- ** Execution
     , ExitStatus
-    , Status(..)
-    , Bash(..)
-    , unimplemented
+    , Bash
       -- ** Parameters
     , set
     , augment
@@ -23,22 +20,15 @@ module Bash.Config.Types
     , value
       -- ** Functions
     , define
-    , undefine
+    , function
     ) where
 
-import           Control.Applicative
-import           Control.Monad
-import           Control.Monad.Reader.Class
-import           Control.Monad.State.Class
-import           Data.IntMap                (IntMap)
-import qualified Data.IntMap                as IntMap
-import           Data.Map                   (Map)
-import qualified Data.Map                   as Map
-import           Language.Bash.Syntax
-
--------------------------------------------------------------------------------
--- Values
--------------------------------------------------------------------------------
+import           Control.Monad.State
+import           Data.IntMap          (IntMap)
+import qualified Data.IntMap          as IntMap
+import           Data.Map             (Map)
+import qualified Data.Map             as Map
+import           Language.Bash.Syntax (List)
 
 -- | A Bash value
 data Value = Value String | Array Array
@@ -52,10 +42,6 @@ toArray :: Value -> Array
 toArray (Value v) = IntMap.singleton 0 v
 toArray (Array a) = a
 
--------------------------------------------------------------------------------
--- Environments
--------------------------------------------------------------------------------
-
 -- | The execution environment.
 data Env = Env
     { -- | Environment parameters or variables.
@@ -68,104 +54,59 @@ data Env = Env
 emptyEnv :: Env
 emptyEnv = Env Map.empty Map.empty
 
--------------------------------------------------------------------------------
--- Execution
--------------------------------------------------------------------------------
+-- | Construct an environment from a list of bindings.
+fromList :: [(String, Value)] -> Env
+fromList xs = Env (Map.fromList xs) Map.empty
 
 -- | A command's return code.
 type ExitStatus = Maybe Bool
 
--- | The execution status. If the interpreter cannot fully simulate Bash,
--- the execution status will be set to 'Dirty' and execution will proceed
--- in a safe manner.
-data Status
-      -- | Unsafe execution
-    = Unsafe
-      -- | Indeterminate execution.
-    | Dirty
-      -- | Normal execution.
-    | Clean
-    deriving (Eq, Ord, Read, Show, Enum, Bounded)
-
 -- | The Bash execution monad.
-newtype Bash a = Bash { runBash :: Status -> Env -> Either String (a, Env) }
-    deriving (Functor)
-
-instance Applicative Bash where
-    pure  = return
-    (<*>) = ap
-
-instance Alternative Bash where
-    empty = fail "empty"
-    (<|>) = mplus
-
-instance Monad Bash where
-    return a = Bash $ \_ s -> Right (a, s)
-    m >>= k  = Bash $ \r s -> do
-                   (a, s') <- runBash m r s
-                   runBash (k a) r s'
-    fail s   = Bash $ \_ _ -> Left s
-
-instance MonadPlus Bash where
-    mzero     = fail "mzero"
-    mplus a b = Bash $ \r s -> runBash a r s `mplus` runBash b r s
-
-instance MonadReader Status Bash where
-    ask       = Bash $ \r s -> Right (r, s)
-    local f m = Bash $ \r s -> runBash m (f r) s
-    reader f  = Bash $ \r s -> Right (f r, s)
-
-instance MonadState Env Bash where
-    get     = Bash $ \_ s -> Right (s, s)
-    put s   = Bash $ \_ _ -> Right ((), s)
-    state f = Bash $ \_ s -> Right (f s)
-
--- | Fail with a message.
-unimplemented :: String -> Bash a
-unimplemented = fail
-
--- | Fail with a message if the current execution status is not 'Clean'.
-whenClean :: String -> Bash a -> Bash a
-whenClean s m = ask >>= \case
-    Clean -> m
-    _     -> fail s
-
--------------------------------------------------------------------------------
--- Parameters
--------------------------------------------------------------------------------
+type Bash = State Env
 
 -- | Modify the shell parameter map.
 modifyParameters
-    :: (Map String (Value String) -> Map String (Value String))
-    -> Bash ()
+    :: MonadState Env m => (Map String Value -> Map String Value) -> m ()
 modifyParameters f = modify $ \env -> env { parameters = f (parameters env) }
 
 -- | Set a shell parameter. Fails if the current execution status is dirty.
-set :: String -> Value String -> Bash ()
+set :: MonadState Env m => String -> Value -> m ()
+set k v = modifyParameters $ Map.insert k v
 
 -- | Add to a shell parameter.
-augment :: String -> Value String -> Bash ()
+augment :: MonadState Env m => String -> Value -> m ()
+augment k v = modifyParameters $ Map.alter (Just . flip f v) k
+  where
+    f Nothing          b         = b
+    f (Just (Value a)) (Value b) = Value $ a ++ b
+    f (Just a)         (Array b) = Array $ merge (toArray a) b
+    f (Just (Array a)) (Value b) = Array $
+                                   IntMap.alter (Just . maybe b (++ b)) 0 a
+
+    merge a b = go a 0 (IntMap.elems b)
+      where
+        go m _ []                 = m
+        go m n xs@(x:xs')
+            | n `IntMap.member` m = go m (n + 1) xs
+            | otherwise           = go (IntMap.insert n x m) (n + 1) xs'
 
 -- | Unset a shell parameter.
-unset :: String -> Bash ()
-unset name = modifyParameters (Map.delete name)
+unset :: MonadState Env m => String -> m ()
+unset k = modifyParameters $ Map.delete k
 
 -- | Get the value of a binding, if it is known.
-value :: String -> Bash (Maybe Value)
-value name = gets (Map.lookup name . parameters)
-
--------------------------------------------------------------------------------
--- Functions
--------------------------------------------------------------------------------
+value :: MonadState Env m => String -> m (Maybe Value)
+value k = gets (Map.lookup k . parameters)
 
 -- | Modify the shell function map.
-modifyFunctions :: (Map String Function -> Map String Function) -> Bash ()
+modifyFunctions
+    :: MonadState Env m => (Map String List -> Map String List) -> m ()
 modifyFunctions f = modify $ \env -> env { functions = f (functions env) }
 
 -- | Define a shell function. Fails if the current execution status is dirty.
-define :: String -> Function -> Bash ()
-define name body = whenClean name $ modifyFunctions (Map.insert name body)
+define :: MonadState Env m => String -> List -> m ()
+define k l = modifyFunctions (Map.insert k l)
 
--- | Undefine a shell function.
-undefine :: String -> Bash ()
-undefine name = modifyFunctions (Map.delete name)
+-- | Get the value of a function.
+function :: MonadState Env m => String -> m (Maybe List)
+function k = gets (Map.lookup k . functions)
