@@ -1,155 +1,53 @@
-{-# LANGUAGE LambdaCase, OverloadedStrings #-}
 -- | Shell expansions.
 module Bash.Config.Expand
-    ( unquote
+    ( expandWordList
     , expandWord
-    , expandWordList
-    , expandValue
+    , expandRValue
     ) where
 
-import Control.Applicative
-import Control.Monad
-import Control.Monad.Trans
-import Data.Maybe
-import Text.Parsec         hiding ((<|>))
+import           Control.Applicative
+import           Control.Monad.Trans.Maybe
+import qualified Data.IntMap               as IntMap
+import           Data.List
+import           Language.Bash.Expand
+import           Language.Bash.Syntax
+import           Language.Bash.Word
 
-import Bash.Config.Lexer
-import Bash.Config.Types
-import Bash.Config.Word
+import           Bash.Config.Env
 
--- | Break a list on an element, if it exists.
-breakOn :: Eq a => a -> [a] -> Maybe ([a], [a])
-breakOn z = breakBy (== z)
-
--- | Break a list on an predicate, if it exists.
-breakBy :: (a -> Bool) -> [a] -> Maybe ([a], [a])
-breakBy p xs = case break p xs of
-    (ys, (x:xs')) | p x -> Just (ys, xs')
-    _                   -> Nothing
-
--- | Split a list on an element.
-splitOn :: Eq a => a -> [a] -> [[a]]
-splitOn z = splitBy (== z)
-
--- | Split a list on a predicate.
-splitBy :: (a -> Bool) -> [a] -> [[a]]
-splitBy p = go
-  where
-    go xs = case breakBy p xs of
-        Nothing        -> [xs]
-        Just (ys, xs') -> ys : go xs'
-
--- | Map a monadic action over a list and concatenate the results.
-concatMapM :: Monad m => (a -> m [b]) -> [a] -> m [b]
-concatMapM f = liftM concat . mapM f
-
--- | Get the value of the IFS variable as a string.
-ifsValue :: Bash String
-ifsValue = valueString <$> value "IFS" <|> pure " \t\n"
-  where
-    valueString (Value v) = v
-    valueString (Array _) = ""
-
--- | Brace expand a word.
--- TODO: {x..y}
-braceExpand :: Word -> [Word]
-braceExpand = map reinterpret . go
-  where
-    go w = case brace w of
-        Nothing -> [w]
-        Just ws -> ws
-
-    brace w = do
-        (preamble, w')     <- breakOn (Char '{') w
-        (amble, postamble) <- breakOn (Char '}') w'
-        let as = expandAmble amble
-            bs = go postamble
-        return [preamble ++ a ++ b | a <- as, b <- bs]
-
-    expandAmble = concatAmble . map go . splitOn (Char ',')
-
-    concatAmble []   = ["{}"]
-    concatAmble [xs] = map (\s -> "{" ++ s ++ "}") xs
-    concatAmble xss  = concat xss
-
-    reinterpret w = case parse word "" (toString w) of
-        Left  _  -> w
-        Right w' -> w'
-
--- | Fail if a tilde expansion should be performed.
-tildeExpand :: Word -> Bash Word
-tildeExpand w@(Char '~':_) = unimplemented (toString w)
-tildeExpand w              = return w
-
--- | Perform an expansion.
-expansion :: Word -> Bash Word
-expansion w = runParserT (brace <* eof) () "" s >>= \case
-    Left  _ -> unimplemented s
-    Right r -> return (fromString r)
-  where
-    s = toString w
-
-    brace = char '!' *> lift (unimplemented s)
-        <|> char '#' *> lift (unimplemented s)
-        <|> parameter
-
-    parameter = do
-        n <- name
-        fromValue <$> lift (value n)
-      where
-        fromValue (Value v)     = v
-        fromValue (Array (v:_)) = v
-        fromValue _             = ""
-
--- | Perform parameter expansion, arithmetic expansion, command
--- substitution, and process substitution.
-expand :: Word -> Bash Word
-expand = concatMapM $ \c -> case c of
-    Double w         -> return . Double <$> expand w
-    Backquote _      -> unimplemented (toString [c])
-    Parameter w      -> expansion w
-    BraceParameter w -> expansion w
-    ArithSubst _     -> unimplemented (toString [c])
-    CommandSubst _   -> unimplemented (toString [c])
-    ProcessSubst _ _ -> unimplemented (toString [c])
-    _                -> return [c]
-
--- | Split a word into multiple words.
-splitWord :: Word -> Bash [Word]
-splitWord w = do
-    ifs <- ifsValue
-    let isSep (Char c) | c `elem` ifs = True
-        isSep _                       = False
-    return $ filter (not . null) (splitBy isSep w)
-
--- | Fail if a filename expansion should be performed.
-filenameExpand :: Word -> Bash Word
-filenameExpand w
-    | any (== Char '*') w = unimplemented (toString w)
-    | any (== Char '?') w = unimplemented (toString w)
-    | hasCharClass        = unimplemented (toString w)
-    | otherwise           = return w
-  where
-    hasCharClass = isJust $ do
-        (_, w') <- breakOn (Char '[') w
-        breakOn (Char ']') w'
-
--- | Expand a single word.
-expandWord :: Word -> Bash String
-expandWord = tildeExpand
-         >=> expand
-         >=> return . unquote
+-- | Read an index. If the read fails, 0 is returned.
+readIx :: String -> Int
+readIx s = case reads (dropWhile (== '+') s) of
+    [(n,"")] | n >= 0 -> n
+    _                 -> 0
 
 -- | Expand a list of words.
-expandWordList :: [Word] -> Bash [String]
-expandWordList = return . concatMap braceExpand
-             >=> mapM tildeExpand
-             >=> mapM expand
-             >=> concatMapM splitWord
-             >=> mapM filenameExpand
-             >=> return . map unquote
+expandWordList :: [Word] -> MaybeT Bash [String]
+expandWordList = undefined
 
--- | Expand a 'Value'.
-expandValue :: (Value Word) -> Bash (Value String)
-expandValue (Value v)  = Value <$> expandWord v
-expandValue (Array vs) = Array <$> expandWordList vs
+-- | Expand a word.
+expandWord :: Word -> MaybeT Bash String
+expandWord = undefined
+
+-- | Expand an array.
+expandArray :: [(Maybe Word, Word)] -> MaybeT Bash Array
+expandArray ws = IntMap.fromList . assemble . concat <$> mapM expandElem ws
+  where
+    expandElem (Nothing, w) = do
+        s <- expandWord w
+        return [(Nothing, s)]
+
+    expandElem (Just sub, w) = do
+        i  <- readIx <$> expandWord sub
+        ss <- expandWordList [w]
+        return $ map (\s -> (Just i, s)) ss
+
+    assemble = snd . mapAccumL go 0
+      where
+        go i (Nothing, s) = (i + 1, (i, s))
+        go _ (Just i, s)  = (i + 1, (i, s))
+
+-- | Expand an rvalue.
+expandRValue :: RValue -> MaybeT Bash Value
+expandRValue (RValue v) = Value <$> expandWord v
+expandRValue (RArray a) = Array <$> expandArray a
