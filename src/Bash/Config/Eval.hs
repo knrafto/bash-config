@@ -1,10 +1,13 @@
+{-# LANGUAGE RecordWildCards #-}
 -- | Bash script evaluation.
 module Bash.Config.Eval
     ( Eval(..)
     , interpret
     ) where
 
+import Control.Applicative
 import Control.Monad.State
+import Language.Bash.Syntax
 
 import Bash.Config.Env
 
@@ -21,3 +24,29 @@ class Eval a where
 
 instance Eval a => Eval [a] where
     eval = foldr (\e a -> eval e >> a) (return (Just True))
+
+instance Eval Command where
+    eval (Command c _) = eval c
+
+instance Eval ShellCommand where
+    eval = undefined
+
+instance Eval List where
+    eval (List ss) = eval ss
+
+instance Eval Statement where
+    eval (Statement l Sequential)   = eval l
+    eval (Statement _ Asynchronous) = return Nothing
+
+instance Eval AndOr where
+    eval = undefined
+
+instance Eval Pipeline where
+    eval Pipeline{..} = (if inverted then fmap not else id) <$>
+        case commands of
+            []  -> return (Just True)
+            [c] -> eval c
+            _   -> return Nothing
+
+instance Eval Assign where
+    eval = undefined
