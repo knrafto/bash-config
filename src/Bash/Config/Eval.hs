@@ -17,6 +17,20 @@ import Bash.Config.Env
 interpret :: Eval a => a -> Env -> Env
 interpret = execState . eval
 
+-- | Evaluate a predicate, and take a branch if possible.
+predicate
+    :: Eval a
+    => a
+    -> Bash ExitStatus
+    -> Bash ExitStatus
+    -> Bash ExitStatus
+predicate p t f = do
+    s <- eval p
+    case s of
+        Nothing    -> return Nothing
+        Just False -> f
+        Just True  -> t
+
 -- | Executable commands.
 class Eval a where
     -- | Execute a command, and return its return value.
@@ -39,7 +53,9 @@ instance Eval Statement where
     eval (Statement _ Asynchronous) = return Nothing
 
 instance Eval AndOr where
-    eval = undefined
+    eval (Last p)  = eval p
+    eval (And p l) = predicate p (eval l) (return (Just False))
+    eval (Or p l)  = predicate p (return (Just True)) (eval l)
 
 instance Eval Pipeline where
     eval Pipeline{..} = (if inverted then fmap not else id) <$>
