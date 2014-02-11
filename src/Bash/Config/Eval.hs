@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE LambdaCase, RecordWildCards #-}
 -- | Bash script evaluation.
 module Bash.Config.Eval
     ( Eval(..)
@@ -7,9 +7,13 @@ module Bash.Config.Eval
 
 import Control.Applicative
 import Control.Monad.State
+import Control.Monad.Trans.Maybe
 import Language.Bash.Syntax
+import Language.Bash.Word
 
 import Bash.Config.Env
+import Bash.Config.Expand
+import Bash.Config.Cond
 
 -- | Interpret a script or function, returning the resulting environment
 -- variables and function definitions. Any variables or functions missing
@@ -24,17 +28,37 @@ predicate
     -> Bash ExitStatus
     -> Bash ExitStatus
     -> Bash ExitStatus
-predicate p t f = do
-    s <- eval p
-    case s of
-        Nothing    -> return Nothing
-        Just False -> f
-        Just True  -> t
+predicate p t f = eval p >>= \case
+    Just True  -> t
+    Just False -> f
+    Nothing    -> return Nothing
+
+-- | Evaluate in a subshell.
+subshell :: MonadState s m => m a -> m a
+subshell a = do
+    s <- get
+    r <- a
+    put s
+    return r
+
+-- | Evaluate a simple command.
+simpleCommand :: [Assign] -> [Word] -> Bash ExitStatus
+simpleCommand as ws = runMaybeT (expandWordList ws) >>= \case
+    Nothing       -> return Nothing
+    Just []       -> eval as
+    Just (c:args) -> command c args
+
+-- | Run a command.
+command :: String -> [String] -> Bash ExitStatus
+command = undefined
 
 -- | Executable commands.
 class Eval a where
     -- | Execute a command, and return its return value.
     eval :: a -> Bash ExitStatus
+
+instance Eval a => Eval (Maybe a) where
+    eval = maybe (return Nothing) eval
 
 instance Eval a => Eval [a] where
     eval = foldr (\e a -> eval e >> a) (return (Just True))
@@ -43,7 +67,13 @@ instance Eval Command where
     eval (Command c _) = eval c
 
 instance Eval ShellCommand where
-    eval = undefined
+    eval (SimpleCommand as ss)   = simpleCommand as ss
+    eval (FunctionDef name body) = Nothing <$ define name body
+    eval (Subshell l)            = subshell (eval l)
+    eval (Group l)               = eval l
+    eval (Cond expr)             = cond expr
+    eval (If p t f)              = predicate p (eval t) (eval f)
+    eval _                       = return Nothing
 
 instance Eval List where
     eval (List ss) = eval ss
@@ -62,7 +92,7 @@ instance Eval Pipeline where
         case commands of
             []  -> return (Just True)
             [c] -> eval c
-            _   -> return Nothing
+            cs  -> subshell (eval cs)
 
 instance Eval Assign where
     eval = undefined
