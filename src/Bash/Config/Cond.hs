@@ -7,6 +7,7 @@ module Bash.Config.Cond
     ) where
 
 import Control.Applicative
+import Control.Arrow
 import Control.Monad.Trans.Maybe
 import Data.Traversable
 import Language.Bash.Cond
@@ -31,7 +32,7 @@ eval = \case
         , (NonzeroString, not . null)
         ]
 
-    binaryOps = map (\(op, f) -> (op, uncurry f))
+    binaryOps = map (second uncurry)
         [ (StrEQ, (==))
         , (StrNE, (/=))
         , (StrLT, (<) )
