@@ -5,15 +5,17 @@ module Bash.Config.Eval
     , interpret
     ) where
 
-import Control.Applicative
-import Control.Monad.State
-import Control.Monad.Trans.Maybe
-import Language.Bash.Syntax
-import Language.Bash.Word
+import           Control.Applicative
+import           Control.Monad.State
+import           Control.Monad.Trans.Maybe
+import           Data.Map                  (Map)
+import qualified Data.Map                  as Map
+import           Language.Bash.Syntax
+import           Language.Bash.Word
 
-import Bash.Config.Env
-import Bash.Config.Expand
-import Bash.Config.Cond
+import           Bash.Config.Env
+import           Bash.Config.Expand
+import           Bash.Config.Cond
 
 -- | Interpret a script or function, returning the resulting environment
 -- variables and function definitions. Any variables or functions missing
@@ -50,7 +52,21 @@ simpleCommand as ws = runMaybeT (expandWordList ws) >>= \case
 
 -- | Run a command.
 command :: String -> [String] -> Bash ExitStatus
-command = undefined
+command name args = do
+    fs <- gets functions
+    let symbols = builtins `Map.union` ((\l _ -> eval l) <$> fs)
+    case Map.lookup name symbols of
+        Nothing -> return Nothing
+        Just f  -> f args
+
+-- | Bash shell builtins.
+builtins :: Map String ([String] -> Bash ExitStatus)
+builtins = Map.fromList
+    [ ("true" , \_ -> return (Just True))
+    , ("false", \_ -> return (Just False))
+    , ("test" , return . test)
+    , ("["    , return . test_)
+    ]
 
 -- | Executable commands.
 class Eval a where
