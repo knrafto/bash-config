@@ -4,8 +4,6 @@ module Bash.Config
       Env(..)
     , emptyEnv 
     , Value(..)
-    , Script
-    , Function
       -- * Parsing
     , parse
       -- * Interpretation
@@ -13,6 +11,7 @@ module Bash.Config
     , interpret
     ) where
 
+import Language.Bash.Parse
+
 import Bash.Config.Eval
-import Bash.Config.Parser
-import Bash.Config.Types
+import Bash.Config.Env
