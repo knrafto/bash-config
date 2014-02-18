@@ -68,6 +68,18 @@ builtins = Map.fromList
     , ("["    , return . test_)
     ]
 
+-- | Perform an assignment.
+assign :: Assign -> Bash ExitStatus
+assign (Assign (Parameter name sub) op rvalue) = runMaybeT $ do
+    v <- expandRValue rvalue
+    case sub of
+        Nothing -> lift $ perform op name v
+        Just _  -> mzero
+    return True
+  where
+    perform Equals     = set
+    perform PlusEquals = augment
+
 -- | Executable commands.
 class Eval a where
     -- | Execute a command, and return its return value.
@@ -111,4 +123,4 @@ instance Eval Pipeline where
             cs  -> subshell (eval cs)
 
 instance Eval Assign where
-    eval = undefined
+    eval = assign
